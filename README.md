@@ -2,7 +2,7 @@
 #Specially This App is Completely Created by KritiAi our own personal Assistant. 
 its Created by KritiAi From Scratch, from frontend , backend to API integration database management and deployments its solemnly completed by KritiAi.
 
-link to visit <a>https://chat-app-three-blue-18.vercel.app/</a>
+link to visit <a>https://quick-chat-room.vercel.app/</a>
 
 
 
