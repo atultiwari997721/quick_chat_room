@@ -1,4 +1,8 @@
 # quick_chat_room
+#Specially This App is Completely Created by KritiAi our own personal Assistant. 
+its Created by KritiAi From Scratch, from frontend , backend to API integration database management and deployments its solemnly completed by KritiAi.
+
+
 
 A real-time chat app built with Next.js, Prisma, and SQLite.
 
