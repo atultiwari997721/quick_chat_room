@@ -103,8 +103,8 @@ export default function Home() {
     setNotice(null);
   }, [user]);
 
-  const handleRemoved = useCallback(() => {
-    setNotice("You were removed from the room by the admin.");
+  const handleRemoved = useCallback((message?: string) => {
+    setNotice(message ?? "You were removed from the room by the admin.");
     setRoom(null);
     setUser(null);
   }, []);
@@ -114,7 +114,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex h-dvh flex-col overflow-hidden bg-zinc-50 dark:bg-black">
       {notice && !room && (
         <div className="mx-4 mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
           {notice}

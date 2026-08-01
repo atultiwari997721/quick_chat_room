@@ -7,22 +7,15 @@ export async function deleteUserData(userId: string) {
   });
   if (!user) return;
 
-  const wasAdmin = user.room && user.room.adminId === userId;
+  const room = user.room;
+
+  if (room && room.adminId === userId) {
+    await prisma.$transaction([
+      prisma.user.deleteMany({ where: { roomId: room.id } }),
+      prisma.room.delete({ where: { id: room.id } }),
+    ]);
+    return;
+  }
 
   await prisma.user.delete({ where: { id: userId } });
-
-  if (wasAdmin && user.room) {
-    const remaining = await prisma.room.findUnique({
-      where: { id: user.room.id },
-      include: { users: { orderBy: { createdAt: "asc" }, take: 1 } },
-    });
-    if (remaining && remaining.users.length > 0) {
-      await prisma.room.update({
-        where: { id: remaining.id },
-        data: { adminId: remaining.users[0].id },
-      });
-    } else if (remaining) {
-      await prisma.room.delete({ where: { id: remaining.id } });
-    }
-  }
 }

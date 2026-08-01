@@ -18,15 +18,17 @@ export function MembersPanel({
   onRemove,
   onClose,
 }: MembersPanelProps) {
+  const isCurrentAdmin = currentUserId === adminId;
+
   return (
-    <aside className="flex w-full flex-col border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:w-64 sm:border-b-0 sm:border-r">
+    <aside className="flex w-full shrink-0 flex-col overflow-hidden border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:w-72 sm:border-b-0 sm:border-r">
       <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <h2 className="font-semibold">
           Members <span className="text-zinc-400">({users.length})</span>
         </h2>
         <button
           onClick={onClose}
-          className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+          className="rounded-md px-2 py-1 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
         >
           Close
         </button>
@@ -44,15 +46,15 @@ export function MembersPanel({
                   {isSelf && <span className="text-zinc-400"> (you)</span>}
                 </p>
                 {isAdmin && (
-                  <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                     Admin
                   </span>
                 )}
               </div>
-              {isAdmin && !isSelf && (
+              {isCurrentAdmin && !isSelf && (
                 <button
                   onClick={() => onRemove(u.id)}
-                  className="rounded-md px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                  className="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/50 dark:text-red-400 dark:hover:bg-red-950"
                 >
                   Remove
                 </button>
@@ -61,6 +63,11 @@ export function MembersPanel({
           );
         })}
       </ul>
+      {isCurrentAdmin && (
+        <p className="border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
+          You are the admin. Only you can remove members.
+        </p>
+      )}
     </aside>
   );
 }

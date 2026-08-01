@@ -42,7 +42,7 @@ export function ProfilePanel({ user, onSave, onClose }: ProfilePanelProps) {
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+            className="rounded-md px-2 py-1 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
           >
             Close
           </button>
@@ -76,14 +76,14 @@ export function ProfilePanel({ user, onSave, onClose }: ProfilePanelProps) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
-            className="rounded-lg border border-zinc-300 px-4 py-2 outline-none focus:border-zinc-500 dark:border-zinc-700"
+            className="rounded-lg border border-zinc-300 px-4 py-2 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:focus:border-indigo-400"
           />
         </label>
 
         <button
           type="submit"
           disabled={!name.trim()}
-          className="rounded-lg bg-zinc-900 px-4 py-2.5 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 font-medium text-white shadow-sm transition-all hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40"
         >
           Save
         </button>
