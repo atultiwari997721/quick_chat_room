@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const roomId = request.nextUrl.searchParams.get("roomId");
+  if (!roomId) {
+    return NextResponse.json({ error: "roomId is required" }, { status: 400 });
+  }
   const messages = await prisma.message.findMany({
+    where: { roomId },
     include: { user: true },
     orderBy: { createdAt: "asc" },
   });
@@ -11,26 +16,32 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { content, userName } = body as { content?: string; userName?: string };
+  const { content, roomId, userId } = body as {
+    content?: string;
+    roomId?: string;
+    userId?: string;
+  };
 
-  if (!content || !content.trim() || !userName || !userName.trim()) {
+  if (!content || !content.trim() || !roomId || !userId) {
     return NextResponse.json(
-      { error: "content and userName are required" },
+      { error: "content, roomId, and userId are required" },
       { status: 400 }
     );
   }
 
-  let user = await prisma.user.findFirst({
-    where: { name: userName.trim() },
-  });
-  if (!user) {
-    user = await prisma.user.create({ data: { name: userName.trim() } });
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.roomId !== roomId) {
+    return NextResponse.json(
+      { error: "User is not in this room" },
+      { status: 403 }
+    );
   }
 
   const message = await prisma.message.create({
     data: {
       content: content.trim(),
       userId: user.id,
+      roomId,
     },
     include: { user: true },
   });

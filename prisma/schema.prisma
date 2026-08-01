@@ -9,16 +9,33 @@ datasource db {
 }
 
 model User {
+  id          String    @id @default(cuid())
+  name        String
+  avatar      String?
+  roomId      String?
+  room        Room?     @relation("RoomMembers", fields: [roomId], references: [id], onDelete: SetNull)
+  adminRooms  Room[]    @relation("RoomAdmin")
+  messages    Message[]
+  createdAt   DateTime  @default(now())
+}
+
+model Room {
   id        String    @id @default(cuid())
+  code      String    @unique
   name      String
-  createdAt DateTime  @default(now())
+  adminId   String?
+  admin     User?     @relation("RoomAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  users     User[]    @relation("RoomMembers")
   messages  Message[]
+  createdAt DateTime  @default(now())
 }
 
 model Message {
   id        String   @id @default(cuid())
   content   String
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 }
