@@ -12,6 +12,7 @@ type SidebarProps = {
   onClearNotice: () => void;
   onSelect: (room: RoomSummary) => void;
   onNewRoom: () => void;
+  onGames: () => void;
   onLogout: () => void;
 };
 
@@ -35,6 +36,7 @@ export function Sidebar({
   onClearNotice,
   onSelect,
   onNewRoom,
+  onGames,
   onLogout,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
@@ -89,6 +91,21 @@ export function Sidebar({
           </button>
         </div>
       )}
+
+      <nav className="flex gap-1 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <button
+          onClick={onNewRoom}
+          className="rounded-full bg-gradient-to-r from-indigo-600 via-pink-500 to-amber-500 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          New Room
+        </button>
+        <button
+          onClick={onGames}
+          className="rounded-full border border-zinc-200 px-4 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-400 dark:hover:text-indigo-300"
+        >
+          🎮 Games
+        </button>
+      </nav>
 
       <div className="px-4 py-3">
         <input

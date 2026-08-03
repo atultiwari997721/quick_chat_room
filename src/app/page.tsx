@@ -5,6 +5,7 @@ import { AuthScreen } from "@/components/AuthScreen";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatRoom } from "@/components/ChatRoom";
 import { NewChatModal } from "@/components/NewChatModal";
+import { GamesPanel } from "@/components/GamesPanel";
 import type { Account, Room, RoomSummary } from "@/lib/types";
 
 const TOKEN_KEY = "qchat_token";
@@ -19,6 +20,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [view, setView] = useState<"chats" | "games">("chats");
+  const [gameCode, setGameCode] = useState<string | null>(null);
 
   // On mount only: restore the session token and validate it
   useEffect(() => {
@@ -50,6 +53,11 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("room");
     if (code && /^\d{6}$/.test(code)) setJoinCode(code);
+    const gcode = params.get("game");
+    if (gcode && /^\d{6}$/.test(gcode)) {
+      setGameCode(gcode);
+      setView("games");
+    }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -194,10 +202,25 @@ export default function Home() {
           if (res.ok) setActive(data.room);
         }}
         onNewRoom={() => setShowNewRoom(true)}
+        onGames={() => {
+          setView("games");
+          setActive(null);
+        }}
         onLogout={() => void logout()}
       />
 
-      {active ? (
+      {view === "games" ? (
+        <GamesPanel
+          account={account}
+          token={token}
+          initialCode={gameCode}
+          onBack={() => {
+            setGameCode(null);
+            setView("chats");
+          }}
+          onLogout={() => void logout()}
+        />
+      ) : active ? (
         <ChatRoom
           key={active.id}
           account={account}

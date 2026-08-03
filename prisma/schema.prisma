@@ -18,6 +18,8 @@ model User {
   adminRooms   Room[]        @relation("RoomAdmin")
   messages     Message[]
   sessions     Session[]
+  adminGames   Game[]        @relation("GameAdmin")
+  gamePlayers  GamePlayer[]
   createdAt    DateTime      @default(now())
 }
 
@@ -58,4 +60,32 @@ model Message {
   roomId    String
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+model Game {
+  id         String       @id @default(cuid())
+  code       String       @unique
+  type       String
+  name       String
+  adminId    String?
+  admin      User?        @relation("GameAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  players    GamePlayer[]
+  status     String       @default("lobby")
+  state      Json?
+  winnerId   String?
+  createdAt  DateTime     @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+}
+
+model GamePlayer {
+  id       String   @id @default(cuid())
+  gameId   String
+  userId   String
+  seat     Int
+  joinedAt DateTime @default(now())
+  game     Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, userId])
 }
