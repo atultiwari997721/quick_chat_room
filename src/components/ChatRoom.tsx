@@ -4,50 +4,50 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
-import type { ChatMessage, Room, RoomUser } from "@/lib/types";
+import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
 type ChatRoomProps = {
+  account: Account;
+  token: string;
   room: Room;
-  user: RoomUser;
   onLeft: () => void;
   onRemoved: (message?: string) => void;
-  onProfileUpdate: (user: RoomUser) => void;
+  onProfileUpdate: (user: Account) => void;
 };
 
 export function ChatRoom({
+  account,
+  token,
   room,
-  user,
   onLeft,
   onRemoved,
   onProfileUpdate,
 }: ChatRoomProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [users, setUsers] = useState<RoomUser[]>([user]);
+  const [members, setMembers] = useState<RoomUser[]>(room.members);
   const [input, setInput] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [copied, setCopied] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [leftRoom, setLeftRoom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const isAdmin = user.id === room.adminId;
+  const isAdmin = account.id === room.adminId;
   const shareUrlText = `${window.location.origin}/?room=${room.code}`;
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? "smooth" : "auto",
-    });
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setAtBottom(dist < 100);
+    setAtBottom(dist < 80);
   }, []);
 
   useEffect(() => {
@@ -56,12 +56,12 @@ export function ChatRoom({
 
   useEffect(() => {
     scrollToBottom(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scrollToBottom]);
 
   const loadMessages = useCallback(async () => {
     try {
       const res = await fetch(`/api/messages?roomId=${room.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       if (res.ok) {
@@ -71,45 +71,38 @@ export function ChatRoom({
     } catch {
       // ignore
     }
-  }, [room.id]);
+  }, [room.id, token]);
 
-  const loadUsers = useCallback(async () => {
+  const loadMembers = useCallback(async () => {
     try {
-      const res = await fetch(`/api/rooms/${room.code}`, { cache: "no-store" });
+      const res = await fetch(`/api/rooms/${room.code}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
       if (res.status === 404) {
         onRemoved("This room was closed by its admin.");
         return;
       }
       if (res.ok) {
-        const data = (await res.json()) as { users: RoomUser[] };
-        setUsers(data.users);
-        if (!data.users.some((u) => u.id === user.id)) {
+        const data = (await res.json()) as { room: Room };
+        setMembers(data.room.members);
+        if (!data.room.members.some((u) => u.id === account.id)) {
           onRemoved();
         }
       }
     } catch {
       // ignore
     }
-  }, [room.code, user.id, onRemoved]);
+  }, [room.code, account.id, token, onRemoved]);
 
   useEffect(() => {
     const m = setInterval(loadMessages, 2000);
-    const u = setInterval(loadUsers, 3000);
+    const u = setInterval(loadMembers, 4000);
     return () => {
       clearInterval(m);
       clearInterval(u);
     };
-  }, [loadMessages, loadUsers]);
-
-  useEffect(() => {
-    const sendLeave = () => {
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(`/api/users/${user.id}/leave`);
-      }
-    };
-    window.addEventListener("pagehide", sendLeave);
-    return () => window.removeEventListener("pagehide", sendLeave);
-  }, [user.id]);
+  }, [loadMessages, loadMembers]);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -120,8 +113,11 @@ export function ChatRoom({
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, roomId: room.id, userId: user.id }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content, roomId: room.id }),
       });
       if (res.ok) {
         const message = (await res.json()) as ChatMessage;
@@ -146,15 +142,31 @@ export function ChatRoom({
     }
   };
 
+  const leave = useCallback(() => {
+    if (leftRoom) return;
+    setLeftRoom(true);
+    void fetch(`/api/users/${account.id}/leave`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ roomId: room.id }),
+    }).finally(() => onLeft());
+  }, [account.id, token, room.id, onLeft, leftRoom]);
+
   const removeUser = async (userId: string) => {
     const res = await fetch(`/api/rooms/${room.code}/remove`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminId: user.id, userId }),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId }),
     });
     if (res.ok) {
       const data = (await res.json()) as { users: RoomUser[] };
-      setUsers(data.users);
+      setMembers(data.users);
     } else {
       const data = await res.json().catch(() => null);
       if (data?.error) setInfo(data.error);
@@ -162,15 +174,20 @@ export function ChatRoom({
   };
 
   const saveProfile = async (name: string, avatar: string | null) => {
-    const res = await fetch(`/api/users/${user.id}`, {
+    const res = await fetch(`/api/users/${account.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ name, avatar }),
     });
     if (res.ok) {
-      const updated = (await res.json()) as RoomUser;
+      const updated = (await res.json()) as Account;
       onProfileUpdate(updated);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setMembers((prev) =>
+        prev.map((u) => (u.id === updated.id ? updated : u))
+      );
       setMessages((prev) =>
         prev.map((m) =>
           m.user.id === updated.id ? { ...m, user: updated } : m
@@ -181,9 +198,11 @@ export function ChatRoom({
   };
 
   return (
-    <main className="relative flex min-h-0 w-full flex-1 flex-col self-center overflow-hidden">
+    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <Avatar name={user.name} avatar={user.avatar} />
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-sm font-bold text-white shadow">
+          {room.name.charAt(0).toUpperCase()}
+        </div>
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-semibold">{room.name}</h1>
           <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -194,6 +213,7 @@ export function ChatRoom({
             >
               #{room.code}
             </button>
+            <span>· {members.length} member{members.length === 1 ? "" : "s"}</span>
             {isAdmin && (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                 Admin
@@ -203,25 +223,35 @@ export function ChatRoom({
         </div>
         <button
           onClick={copyLink}
-          className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
-          {copied ? "Link copied" : "Copy link"}
+          {copied ? "Copied" : "Invite"}
         </button>
         <button
           onClick={() => setShowProfile(true)}
-          className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
           Profile
         </button>
         <button
           onClick={() => setShowMembers((v) => !v)}
-          className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
-          Members ({users.length})
+          Members ({members.length})
         </button>
         <button
-          onClick={onLeft}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+          onClick={() => {
+            if (
+              isAdmin &&
+              !window.confirm(
+                "Leaving will delete this room and all messages for everyone. Continue?"
+              )
+            ) {
+              return;
+            }
+            leave();
+          }}
+          className="rounded-full px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
         >
           Leave
         </button>
@@ -236,8 +266,8 @@ export function ChatRoom({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
         {showMembers && (
           <MembersPanel
-            users={users}
-            currentUserId={user.id}
+            members={members}
+            currentUserId={account.id}
             adminId={room.adminId}
             onRemove={removeUser}
             onClose={() => setShowMembers(false)}
@@ -251,19 +281,19 @@ export function ChatRoom({
           >
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 text-2xl font-semibold text-zinc-400 dark:bg-zinc-800">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-2xl font-bold text-white shadow">
                   #
                 </div>
                 <p className="mt-2 text-sm font-medium text-zinc-500">
                   No messages yet.
                 </p>
                 <p className="text-sm text-zinc-400">
-                  Share the invite link to bring people in.
+                  Share the invite link (#{room.code}) to bring people in.
                 </p>
               </div>
             )}
             {messages.map((m) => {
-              const mine = m.user.id === user.id;
+              const mine = m.user.id === account.id;
               return (
                 <div
                   key={m.id}
@@ -273,13 +303,13 @@ export function ChatRoom({
                   <div
                     className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
                       mine
-                        ? "rounded-br-sm bg-indigo-600 text-white dark:bg-indigo-500"
-                        : "rounded-bl-sm border border-zinc-200 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
+                        ? "rounded-br-sm bg-gradient-to-br from-indigo-600 to-pink-500 text-white"
+                        : "rounded-bl-sm border border-zinc-200 bg-white text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
                     }`}
                   >
                     <div
                       className={`mb-1 text-xs font-medium opacity-80 ${
-                        mine ? "text-right text-indigo-100" : ""
+                        mine ? "text-right text-white/90" : ""
                       }`}
                     >
                       {m.user.name}
@@ -289,7 +319,7 @@ export function ChatRoom({
                     </div>
                     <div
                       className={`mt-1 text-[10px] opacity-60 ${
-                        mine ? "text-right text-indigo-100" : ""
+                        mine ? "text-right text-white/90" : ""
                       }`}
                     >
                       {new Date(m.createdAt).toLocaleTimeString([], {
@@ -309,14 +339,14 @@ export function ChatRoom({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a message"
+              placeholder={`Message ${room.name}`}
               maxLength={500}
               className="flex-1 rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 outline-none transition-colors focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-indigo-400 dark:focus:bg-zinc-800"
             />
             <button
               type="submit"
               disabled={!input.trim()}
-              className="rounded-full bg-indigo-600 px-5 py-2 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+              className="rounded-full bg-gradient-to-r from-indigo-600 via-pink-500 to-amber-500 px-5 py-2 font-semibold text-white shadow transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               Send
             </button>
@@ -335,7 +365,7 @@ export function ChatRoom({
 
       {showProfile && (
         <ProfilePanel
-          user={user}
+          user={account}
           onSave={saveProfile}
           onClose={() => setShowProfile(false)}
         />

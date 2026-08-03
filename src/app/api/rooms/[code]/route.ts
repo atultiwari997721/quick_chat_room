@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { toPublicUser } from "@/lib/serialize";
 
 export async function GET(
   _request: NextRequest,
@@ -9,12 +10,18 @@ export async function GET(
   const room = await prisma.room.findUnique({
     where: { code },
     include: {
-      users: { orderBy: { createdAt: "asc" } },
-      admin: true,
+      members: {
+        include: { user: true },
+        orderBy: { joinedAt: "asc" },
+      },
     },
   });
   if (!room) {
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
   }
-  return NextResponse.json({ room, users: room.users });
+
+  const members = room.members.map((m) => toPublicUser(m.user));
+  return NextResponse.json({
+    room: { ...room, members },
+  });
 }

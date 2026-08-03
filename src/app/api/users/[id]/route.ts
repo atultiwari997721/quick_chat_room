@@ -1,26 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { toPublicUser } from "@/lib/serialize";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = await requireUser(request);
+  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
   const { id } = await params;
+  if (id !== user.id) {
+    return NextResponse.json(
+      { error: "You can only edit your own profile" },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json();
   const { name, avatar } = body as { name?: string; avatar?: string | null };
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  if (name !== undefined && !name.trim()) {
+    return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
   }
 
   const updated = await prisma.user.update({
-    where: { id },
+    where: { id: user.id },
     data: {
-      ...(typeof name === "string" && name.trim() ? { name: name.trim() } : {}),
-      ...(typeof avatar === "string" || avatar === null ? { avatar } : {}),
+      name: name !== undefined ? name.trim() : undefined,
+      avatar: avatar !== undefined ? avatar : undefined,
     },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json(toPublicUser(updated));
 }

@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chat App",
-  description: "A real-time chat app built with Next.js and Prisma",
+  title: "Quick Chat",
+  description: "A social chat app with rooms, accounts, and instant messaging",
 };
 
 export default function RootLayout({

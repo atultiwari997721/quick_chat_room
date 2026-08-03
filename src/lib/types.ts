@@ -1,3 +1,11 @@
+export type Account = {
+  id: string;
+  username: string;
+  name: string;
+  avatar: string | null;
+  createdAt: string;
+};
+
 export type RoomUser = {
   id: string;
   name: string;
@@ -11,6 +19,22 @@ export type Room = {
   name: string;
   adminId: string | null;
   createdAt: string;
+  members: RoomUser[];
+};
+
+export type RoomSummary = {
+  id: string;
+  code: string;
+  name: string;
+  adminId: string | null;
+  createdAt: string;
+  memberCount: number;
+  lastMessage: {
+    id: string;
+    content: string;
+    createdAt: string;
+    author: string;
+  } | null;
 };
 
 export type ChatMessage = {

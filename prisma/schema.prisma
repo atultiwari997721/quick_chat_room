@@ -9,25 +9,45 @@ datasource db {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  name        String
-  avatar      String?
-  roomId      String?
-  room        Room?     @relation("RoomMembers", fields: [roomId], references: [id], onDelete: SetNull)
-  adminRooms  Room[]    @relation("RoomAdmin")
-  messages    Message[]
-  createdAt   DateTime  @default(now())
+  id           String        @id @default(cuid())
+  username     String?       @unique
+  passwordHash String?
+  name         String
+  avatar       String?
+  memberships  RoomMember[]
+  adminRooms   Room[]        @relation("RoomAdmin")
+  messages     Message[]
+  sessions     Session[]
+  createdAt    DateTime      @default(now())
+}
+
+model Session {
+  token     String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 }
 
 model Room {
-  id        String    @id @default(cuid())
-  code      String    @unique
+  id        String       @id @default(cuid())
+  code      String       @unique
   name      String
   adminId   String?
-  admin     User?     @relation("RoomAdmin", fields: [adminId], references: [id], onDelete: SetNull)
-  users     User[]    @relation("RoomMembers")
+  admin     User?        @relation("RoomAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  members   RoomMember[]
   messages  Message[]
-  createdAt DateTime  @default(now())
+  createdAt DateTime     @default(now())
+}
+
+model RoomMember {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  joinedAt DateTime @default(now())
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
 }
 
 model Message {

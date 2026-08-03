@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { toPublicUser } from "@/lib/serialize";
 
 export async function GET(request: NextRequest) {
   const roomId = request.nextUrl.searchParams.get("roomId");
@@ -11,28 +13,31 @@ export async function GET(request: NextRequest) {
     include: { user: true },
     orderBy: { createdAt: "asc" },
   });
-  return NextResponse.json(messages);
+  return NextResponse.json(
+    messages.map((m) => ({ ...m, user: toPublicUser(m.user) }))
+  );
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { content, roomId, userId } = body as {
-    content?: string;
-    roomId?: string;
-    userId?: string;
-  };
+  const user = await requireUser(request);
+  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
-  if (!content || !content.trim() || !roomId || !userId) {
+  const body = await request.json();
+  const { content, roomId } = body as { content?: string; roomId?: string };
+
+  if (!content || !content.trim() || !roomId) {
     return NextResponse.json(
-      { error: "content, roomId, and userId are required" },
+      { error: "content and roomId are required" },
       { status: 400 }
     );
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user || user.roomId !== roomId) {
+  const membership = await prisma.roomMember.findUnique({
+    where: { roomId_userId: { roomId, userId: user.id } },
+  });
+  if (!membership) {
     return NextResponse.json(
-      { error: "User is not in this room" },
+      { error: "You are not in this room" },
       { status: 403 }
     );
   }
@@ -46,5 +51,8 @@ export async function POST(request: NextRequest) {
     include: { user: true },
   });
 
-  return NextResponse.json(message, { status: 201 });
+  return NextResponse.json(
+    { ...message, user: toPublicUser(message.user) },
+    { status: 201 }
+  );
 }

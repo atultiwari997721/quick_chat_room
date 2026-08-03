@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { toPublicUser } from "@/lib/serialize";
 
 export async function POST(request: NextRequest) {
+  const user = await requireUser(request);
+  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
   const body = await request.json();
-  const { code, name, avatar, id } = body as {
-    code?: string;
-    name?: string;
-    avatar?: string | null;
-    id?: string;
-  };
+  const { code } = body as { code?: string };
 
   if (!code || !/^\d{6}$/.test(code.trim())) {
     return NextResponse.json(
       { error: "A valid 6-digit room code is required" },
       { status: 400 }
     );
-  }
-  if (!name || !name.trim()) {
-    return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
   const room = await prisma.room.findUnique({
@@ -30,9 +27,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const user = await prisma.user.create({
-    data: { id: id || undefined, name: name.trim(), avatar: avatar || null, roomId: room.id },
+  await prisma.roomMember.upsert({
+    where: { roomId_userId: { roomId: room.id, userId: user.id } },
+    create: { roomId: room.id, userId: user.id },
+    update: {},
   });
 
-  return NextResponse.json({ room, user }, { status: 201 });
+  const updated = await prisma.room.findUnique({
+    where: { id: room.id },
+    include: {
+      members: { include: { user: true }, orderBy: { joinedAt: "asc" } },
+    },
+  });
+  if (!updated) {
+    return NextResponse.json({ error: "Room not found" }, { status: 404 });
+  }
+
+  const members = updated.members.map((m) => toPublicUser(m.user));
+  return NextResponse.json(
+    { room: { ...updated, members }, user: toPublicUser(user) },
+    { status: 201 }
+  );
 }

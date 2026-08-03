@@ -4,7 +4,7 @@ import { Avatar } from "@/components/Avatar";
 import type { RoomUser } from "@/lib/types";
 
 type MembersPanelProps = {
-  users: RoomUser[];
+  members: RoomUser[];
   currentUserId: string;
   adminId: string | null;
   onRemove: (userId: string) => void;
@@ -12,7 +12,7 @@ type MembersPanelProps = {
 };
 
 export function MembersPanel({
-  users,
+  members,
   currentUserId,
   adminId,
   onRemove,
@@ -24,7 +24,7 @@ export function MembersPanel({
     <aside className="flex w-full shrink-0 flex-col overflow-hidden border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:w-72 sm:border-b-0 sm:border-r">
       <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <h2 className="font-semibold">
-          Members <span className="text-zinc-400">({users.length})</span>
+          Members <span className="text-zinc-400">({members.length})</span>
         </h2>
         <button
           onClick={onClose}
@@ -34,7 +34,7 @@ export function MembersPanel({
         </button>
       </div>
       <ul className="flex-1 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
-        {users.map((u) => {
+        {members.map((u) => {
           const isAdmin = u.id === adminId;
           const isSelf = u.id === currentUserId;
           return (
@@ -53,7 +53,11 @@ export function MembersPanel({
               </div>
               {isCurrentAdmin && !isSelf && (
                 <button
-                  onClick={() => onRemove(u.id)}
+                  onClick={() => {
+                    if (window.confirm(`Remove ${u.name} from the room?`)) {
+                      onRemove(u.id);
+                    }
+                  }}
                   className="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-950/50 dark:text-red-400 dark:hover:bg-red-950"
                 >
                   Remove

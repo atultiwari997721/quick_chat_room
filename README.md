@@ -5,16 +5,18 @@ Its Created by KritiAi From Scratch, from frontend, backend to API integration d
 
 link to visit <a>https://quick-chat-room.vercel.app/</a>
 
-A room-based chat app built with Next.js, Prisma, and PostgreSQL.
+A social chat app built with Next.js, Prisma, and PostgreSQL — a mix of WhatsApp-style chat lists, Facebook-style rooms, and Instagram-style gradients.
 
 ## Features
 
-- **Create a room** — get a shareable invite link to send to others
-- **Join a room** — enter a 6-digit room code (or open an invite link)
-- **Profile photos** — every user can add a profile photo
-- **Admin powers** — the room creator is the admin and can see all members and remove them
+- **Accounts** — register with a username + password, log in, and the browser remembers your session
+- **WhatsApp-style sidebar** — your rooms listed like chats, with last-message previews and search
+- **Create a room** — get a shareable invite link (or 6-digit code) to send to others
+- **Join a room** — enter a 6-digit code or open an invite link
+- **Profile photos** — every user can add a profile photo with an Instagram-style gradient ring
+- **Admin powers** — the room creator is the admin and can remove members; only the admin can
 - **Room-based messaging** — messages are scoped to each room with live polling updates
-- **Auto data cleanup** — when a user closes the app, their data is deleted automatically; only their persistent ID is kept, and they are asked to create or join a room again
+- **Admin leave deletes the room** — when the admin leaves, the room and all its messages are removed automatically
 
 ## Getting Started
 
@@ -44,7 +46,8 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 - [Next.js](https://nextjs.org) 16 (App Router, TypeScript, Tailwind CSS)
 - [Prisma](https://www.prisma.io) ORM with PostgreSQL
-- Route Handlers for the chat API (`/api/rooms`, `/api/messages`, `/api/users`)
+- Route Handlers for the chat API (`/api/auth`, `/api/rooms`, `/api/messages`, `/api/users`)
+- Passwords hashed with Node `crypto.scrypt`; sessions via bearer tokens
 
 Thank you for visiting.
 
