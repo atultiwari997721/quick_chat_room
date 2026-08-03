@@ -20,6 +20,8 @@ model User {
   sessions     Session[]
   adminGames   Game[]        @relation("GameAdmin")
   gamePlayers  GamePlayer[]
+  followsSent  Follow[]      @relation("FollowSent")
+  followsGot   Follow[]      @relation("FollowGot")
   createdAt    DateTime      @default(now())
 }
 
@@ -34,6 +36,7 @@ model Room {
   id        String       @id @default(cuid())
   code      String       @unique
   name      String
+  kind      String       @default("group")
   adminId   String?
   admin     User?        @relation("RoomAdmin", fields: [adminId], references: [id], onDelete: SetNull)
   members   RoomMember[]
@@ -50,6 +53,18 @@ model RoomMember {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
+}
+
+model Follow {
+  id         String   @id @default(cuid())
+  followerId String
+  followeeId String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  follower   User     @relation("FollowSent", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User     @relation("FollowGot", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followeeId])
 }
 
 model Message {

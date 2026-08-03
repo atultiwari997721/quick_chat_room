@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
         id: room.id,
         code: room.code,
         name: room.name,
+        kind: room.kind,
         adminId: room.adminId,
         createdAt: room.createdAt.toISOString(),
         memberCount: room.members.length,

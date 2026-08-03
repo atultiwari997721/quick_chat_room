@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
+import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
 import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
 type ChatRoomProps = {
@@ -30,12 +31,24 @@ export function ChatRoom({
   const [showProfile, setShowProfile] = useState(false);
   const [copied, setCopied] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [leftRoom, setLeftRoom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = account.id === room.adminId;
+  const isDm = room.kind === "dm";
   const shareUrlText = `${window.location.origin}/?room=${room.code}`;
+
+  const securityToast = useChatSecurity(true, () => setBlocked(true));
+
+  useEffect(() => {
+    if (!blocked && !securityToast) return;
+    const t = setTimeout(() => {
+      setBlocked(false);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [blocked, securityToast]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollRef.current;
@@ -142,6 +155,25 @@ export function ChatRoom({
     }
   };
 
+  const clearChat = async () => {
+    const confirmed = window.confirm(
+      "Clear this chat for everyone? All messages will be permanently deleted for both sides. This cannot be undone."
+    );
+    if (!confirmed) return;
+    const res = await fetch(`/api/rooms/${room.code}/clear`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      setMessages([]);
+      setInfo("Chat cleared for everyone.");
+      setTimeout(() => setInfo(null), 2000);
+    } else {
+      const data = await res.json().catch(() => null);
+      if (data?.error) setInfo(data.error);
+    }
+  };
+
   const leave = useCallback(() => {
     if (leftRoom) return;
     setLeftRoom(true);
@@ -214,18 +246,31 @@ export function ChatRoom({
               #{room.code}
             </button>
             <span>· {members.length} member{members.length === 1 ? "" : "s"}</span>
-            {isAdmin && (
+            {isAdmin && !isDm && (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                 Admin
               </span>
             )}
+            {isDm && (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                Private
+              </span>
+            )}
           </div>
         </div>
+        {!isDm && (
+          <button
+            onClick={copyLink}
+            className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            {copied ? "Copied" : "Invite"}
+          </button>
+        )}
         <button
-          onClick={copyLink}
+          onClick={clearChat}
           className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
-          {copied ? "Copied" : "Invite"}
+          Clear Chat
         </button>
         <button
           onClick={() => setShowProfile(true)}
@@ -233,12 +278,14 @@ export function ChatRoom({
         >
           Profile
         </button>
-        <button
-          onClick={() => setShowMembers((v) => !v)}
-          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-        >
-          Members ({members.length})
-        </button>
+        {!isDm && (
+          <button
+            onClick={() => setShowMembers((v) => !v)}
+            className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            Members ({members.length})
+          </button>
+        )}
         <button
           onClick={() => {
             if (
@@ -263,22 +310,30 @@ export function ChatRoom({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
-        {showMembers && (
-          <MembersPanel
-            members={members}
-            currentUserId={account.id}
-            adminId={room.adminId}
-            onRemove={removeUser}
-            onClose={() => setShowMembers(false)}
-          />
-        )}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
-          >
+      {blocked && (
+        <div className="absolute left-1/2 top-14 z-50 -translate-x-1/2 rounded-full bg-zinc-900/90 px-4 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-white/90 dark:text-zinc-900">
+          📸 Screenshots, copying and saving are disabled in this chat
+        </div>
+      )}
+
+<div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+          {showMembers && (
+            <MembersPanel
+              members={members}
+              currentUserId={account.id}
+              adminId={room.adminId}
+              onRemove={removeUser}
+              onClose={() => setShowMembers(false)}
+            />
+          )}
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <Watermark text={account.name} />
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="relative z-10 flex-1 space-y-3 select-none overflow-y-auto px-4 py-4"
+              style={{ userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
+            >
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-2xl font-bold text-white shadow">
@@ -288,7 +343,9 @@ export function ChatRoom({
                   No messages yet.
                 </p>
                 <p className="text-sm text-zinc-400">
-                  Share the invite link (#{room.code}) to bring people in.
+                  {isDm
+                    ? "This is your private chat. Say hello!"
+                    : `Share the invite link (#${room.code}) to bring people in.`}
                 </p>
               </div>
             )}

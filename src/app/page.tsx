@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatRoom } from "@/components/ChatRoom";
 import { NewChatModal } from "@/components/NewChatModal";
 import { GamesPanel } from "@/components/GamesPanel";
+import { PeoplePanel } from "@/components/PeoplePanel";
 import type { Account, Room, RoomSummary } from "@/lib/types";
 
 const TOKEN_KEY = "qchat_token";
@@ -20,7 +21,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
-  const [view, setView] = useState<"chats" | "games">("chats");
+  const [view, setView] = useState<"chats" | "games" | "people">("chats");
   const [gameCode, setGameCode] = useState<string | null>(null);
 
   // On mount only: restore the session token and validate it
@@ -206,10 +207,24 @@ export default function Home() {
           setView("games");
           setActive(null);
         }}
+        onPeople={() => {
+          setView("people");
+          setActive(null);
+        }}
         onLogout={() => void logout()}
       />
 
-      {view === "games" ? (
+      {view === "people" ? (
+        <PeoplePanel
+          token={token}
+          onBack={() => setView("chats")}
+          onOpenDm={(room) => {
+            setActive(room);
+            setView("chats");
+            if (token) void loadRooms(token);
+          }}
+        />
+      ) : view === "games" ? (
         <GamesPanel
           account={account}
           token={token}
