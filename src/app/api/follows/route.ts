@@ -96,17 +96,16 @@ export async function PATCH(request: NextRequest) {
 
   // Accept: mark accepted and open a private 1-on-1 room between the two users.
   const members = [follow.followerId, follow.followeeId];
-  let room = await prisma.room.findFirst({
+  const existingRoom = await prisma.room.findFirst({
     where: {
       kind: "dm",
       members: {
         every: { userId: { in: members } },
       },
     },
-    include: { members: { include: { user: true } } },
   });
 
-  if (!room) {
+  if (!existingRoom) {
     const code = await (async () => {
       let c = String(Math.floor(100000 + Math.random() * 900000));
       while (await prisma.room.findUnique({ where: { code: c } })) {
@@ -117,7 +116,7 @@ export async function PATCH(request: NextRequest) {
 
     const me = follow.followee;
     const them = follow.follower;
-    room = await prisma.room.create({
+    await prisma.room.create({
       data: {
         code,
         kind: "dm",
@@ -127,14 +126,14 @@ export async function PATCH(request: NextRequest) {
           create: members.map((userId) => ({ userId })),
         },
       },
-      include: { members: { include: { user: true } } },
     });
   } else {
+    const dmId = existingRoom!.id;
     await Promise.all(
       members.map((userId) =>
         prisma.roomMember.upsert({
-          where: { roomId_userId: { roomId: room!.id, userId } },
-          create: { roomId: room!.id, userId },
+          where: { roomId_userId: { roomId: dmId, userId } },
+          create: { roomId: dmId, userId },
           update: {},
         })
       )
@@ -146,11 +145,22 @@ export async function PATCH(request: NextRequest) {
     data: { status: "accepted" },
   });
 
+  const dmRoom = await prisma.room.findFirst({
+    where: {
+      kind: "dm",
+      members: { every: { userId: { in: members } } },
+    },
+    include: { members: { include: { user: true } } },
+  });
+  if (!dmRoom) {
+    return NextResponse.json({ error: "Could not open the chat" }, { status: 500 });
+  }
+
   return NextResponse.json({
     ok: true,
     room: {
-      ...room,
-      members: room.members.map((m) => toPublicUser(m.user)),
+      ...dmRoom,
+      members: dmRoom.members.map((m) => toPublicUser(m.user)),
     },
   });
 }
