@@ -11,6 +11,7 @@ type ChatRoomProps = {
   account: Account;
   token: string;
   room: Room;
+  onBack?: () => void;
   onLeft: () => void;
   onRemoved: (message?: string) => void;
   onProfileUpdate: (user: Account) => void;
@@ -20,6 +21,7 @@ export function ChatRoom({
   account,
   token,
   room,
+  onBack,
   onLeft,
   onRemoved,
   onProfileUpdate,
@@ -29,9 +31,10 @@ export function ChatRoom({
   const [input, setInput] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState(false);
+  const [securityToast, setSecurityToast] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [leftRoom, setLeftRoom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -40,15 +43,51 @@ export function ChatRoom({
   const isDm = room.kind === "dm";
   const shareUrlText = `${window.location.origin}/?room=${room.code}`;
 
-  const securityToast = useChatSecurity(true, () => setBlocked(true));
+  const postSystemNotice = useCallback(
+    async (text: string) => {
+      try {
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ content: text, roomId: room.id }),
+        });
+        if (res.ok) {
+          const message = (await res.json()) as ChatMessage;
+          setMessages((prev) => [...prev, message]);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [token, room.id]
+  );
+
+  const handleCopyDetected = useCallback(() => {
+    setSecurityToast("📋 Copied to clipboard! Notification sent to chat.");
+    void postSystemNotice(`📋 ${account.name} copied text from the chat`);
+  }, [account.name, postSystemNotice]);
+
+  const handleScreenshotDetected = useCallback(() => {
+    setSecurityToast("📸 Screenshot detected! Notification sent to chat.");
+    void postSystemNotice(`📸 ${account.name} took a screenshot!`);
+  }, [account.name, postSystemNotice]);
+
+  useChatSecurity({
+    active: true,
+    onCopy: handleCopyDetected,
+    onScreenshot: handleScreenshotDetected,
+  });
 
   useEffect(() => {
-    if (!blocked && !securityToast) return;
+    if (!securityToast) return;
     const t = setTimeout(() => {
-      setBlocked(false);
-    }, 2500);
+      setSecurityToast(null);
+    }, 3000);
     return () => clearTimeout(t);
-  }, [blocked, securityToast]);
+  }, [securityToast]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollRef.current;
@@ -231,13 +270,37 @@ export function ChatRoom({
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-100 dark:bg-zinc-950">
-      <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-sm font-bold text-white shadow">
+      <header className="relative flex items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 sm:px-4 sm:py-3">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 md:hidden"
+            title="Back to chats"
+          >
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+        )}
+
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-sm font-bold text-white shadow-sm">
           {room.name.charAt(0).toUpperCase()}
         </div>
+
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-semibold">{room.name}</h1>
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <h1 className="truncate text-sm font-semibold sm:text-base">{room.name}</h1>
+          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
             <button
               onClick={copyLink}
               className="font-mono font-medium hover:text-zinc-900 dark:hover:text-zinc-50"
@@ -247,61 +310,158 @@ export function ChatRoom({
             </button>
             <span>· {members.length} member{members.length === 1 ? "" : "s"}</span>
             {isAdmin && !isDm && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                 Admin
               </span>
             )}
             {isDm && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                 Private
               </span>
             )}
           </div>
         </div>
-        {!isDm && (
+
+        {/* Desktop actions */}
+        <div className="hidden md:flex md:items-center md:gap-1.5">
+          {!isDm && (
+            <button
+              onClick={copyLink}
+              className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              {copied ? "Copied" : "Invite"}
+            </button>
+          )}
           <button
-            onClick={copyLink}
-            className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            onClick={clearChat}
+            className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
-            {copied ? "Copied" : "Invite"}
+            Clear Chat
           </button>
-        )}
-        <button
-          onClick={clearChat}
-          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-        >
-          Clear Chat
-        </button>
-        <button
-          onClick={() => setShowProfile(true)}
-          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-        >
-          Profile
-        </button>
-        {!isDm && (
           <button
-            onClick={() => setShowMembers((v) => !v)}
-            className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            onClick={() => setShowProfile(true)}
+            className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
-            Members ({members.length})
+            Profile
           </button>
+          {!isDm && (
+            <button
+              onClick={() => setShowMembers((v) => !v)}
+              className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              Members ({members.length})
+            </button>
+          )}
+          <button
+            onClick={() => {
+              if (
+                isAdmin &&
+                !window.confirm(
+                  "Leaving will delete this room and all messages for everyone. Continue?"
+                )
+              ) {
+                return;
+              }
+              leave();
+            }}
+            className="rounded-full px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Leave
+          </button>
+        </div>
+
+        {/* Mobile actions */}
+        <div className="flex items-center gap-1 md:hidden">
+          {!isDm && (
+            <button
+              onClick={() => setShowMembers((v) => !v)}
+              className="flex h-8 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              title="Members"
+            >
+              👥 <span>{members.length}</span>
+            </button>
+          )}
+          {!isDm && (
+            <button
+              onClick={copyLink}
+              className="flex h-8 items-center rounded-full bg-indigo-50 px-2.5 text-xs font-medium text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400"
+              title="Invite"
+            >
+              {copied ? "Copied!" : "Invite"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            title="Room Options"
+          >
+            ⋮
+          </button>
+        </div>
+
+        {/* Mobile Dropdown Menu */}
+        {menuOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setMenuOpen(false)}
+            />
+            <div className="absolute right-3 top-12 z-50 w-48 rounded-2xl border border-zinc-200 bg-white py-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-900 md:hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setShowProfile(true);
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                👤 Edit Profile
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  clearChat();
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                🧹 Clear Chat
+              </button>
+              {!isDm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    copyLink();
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  🔗 Copy Invite Link
+                </button>
+              )}
+              <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (
+                    isAdmin &&
+                    !window.confirm(
+                      "Leaving will delete this room and all messages for everyone. Continue?"
+                    )
+                  ) {
+                    return;
+                  }
+                  leave();
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
+              >
+                🚪 Leave Room
+              </button>
+            </div>
+          </>
         )}
-        <button
-          onClick={() => {
-            if (
-              isAdmin &&
-              !window.confirm(
-                "Leaving will delete this room and all messages for everyone. Continue?"
-              )
-            ) {
-              return;
-            }
-            leave();
-          }}
-          className="rounded-full px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
-        >
-          Leave
-        </button>
       </header>
 
       {info && (
@@ -310,30 +470,29 @@ export function ChatRoom({
         </div>
       )}
 
-      {blocked && (
-        <div className="absolute left-1/2 top-14 z-50 -translate-x-1/2 rounded-full bg-zinc-900/90 px-4 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-white/90 dark:text-zinc-900">
-          📸 Screenshots, copying and saving are disabled in this chat
+      {securityToast && (
+        <div className="absolute left-1/2 top-14 z-50 -translate-x-1/2 rounded-full bg-zinc-900/90 px-4 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur-xs dark:bg-white/90 dark:text-zinc-900">
+          {securityToast}
         </div>
       )}
 
-<div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
-          {showMembers && (
-            <MembersPanel
-              members={members}
-              currentUserId={account.id}
-              adminId={room.adminId}
-              onRemove={removeUser}
-              onClose={() => setShowMembers(false)}
-            />
-          )}
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            <Watermark text={account.name} />
-            <div
-              ref={scrollRef}
-              onScroll={handleScroll}
-              className="relative z-10 flex-1 space-y-3 select-none overflow-y-auto px-4 py-4"
-              style={{ userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
-            >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+        {showMembers && (
+          <MembersPanel
+            members={members}
+            currentUserId={account.id}
+            adminId={room.adminId}
+            onRemove={removeUser}
+            onClose={() => setShowMembers(false)}
+          />
+        )}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Watermark text={account.name} />
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="relative z-10 flex-1 space-y-3 overflow-y-auto px-4 py-4"
+          >
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-2xl font-bold text-white shadow">
@@ -350,6 +509,18 @@ export function ChatRoom({
               </div>
             )}
             {messages.map((m) => {
+              const isSecurityNotice =
+                m.content.startsWith("📸 ") || m.content.startsWith("📋 ");
+              if (isSecurityNotice) {
+                return (
+                  <div key={m.id} className="my-2.5 flex justify-center">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-200/90 px-3.5 py-1 text-xs font-medium text-zinc-700 shadow-xs dark:bg-zinc-800/90 dark:text-zinc-300">
+                      {m.content}
+                    </span>
+                  </div>
+                );
+              }
+
               const mine = m.user.id === account.id;
               return (
                 <div

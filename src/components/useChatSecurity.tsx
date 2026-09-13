@@ -2,62 +2,68 @@
 
 import { useEffect, useState } from "react";
 
-export function useChatSecurity(active: boolean, onBlocked: () => void) {
-  const [toast, setToast] = useState(false);
+type UseChatSecurityProps = {
+  active: boolean;
+  onCopy?: () => void;
+  onScreenshot?: () => void;
+};
+
+export function useChatSecurity({
+  active,
+  onCopy,
+  onScreenshot,
+}: UseChatSecurityProps) {
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
 
-    const block = (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
+    let lastCopyTime = 0;
+    let lastScreenshotTime = 0;
+
+    const handleCopy = () => {
+      const now = Date.now();
+      // Debounce within 4 seconds so rapid Ctrl+C doesn't spam
+      if (now - lastCopyTime > 4000) {
+        lastCopyTime = now;
+        onCopy?.();
+      }
+    };
+
+    const handleScreenshot = () => {
+      const now = Date.now();
+      if (now - lastScreenshotTime > 4000) {
+        lastScreenshotTime = now;
+        onScreenshot?.();
+      }
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (
-        (mod && ["c", "s", "p", "a"].includes(key)) ||
-        key === "printscreen" ||
-        key === "f12"
-      ) {
-        e.preventDefault();
-        onBlocked();
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+
+      // PrintScreen key
+      if (key === "printscreen" || e.code === "PrintScreen") {
+        handleScreenshot();
+        return;
+      }
+
+      // Windows Snipping tool (Shift+Win+S or Shift+Ctrl+S), macOS Shift+Cmd+3/4/5
+      if (e.shiftKey && isCmdOrCtrl && ["s", "3", "4", "5"].includes(key)) {
+        handleScreenshot();
+        return;
       }
     };
 
-    const onContext = (e: MouseEvent) => {
-      e.preventDefault();
-      onBlocked();
-    };
-
-    const onDrag = (e: DragEvent) => {
-      e.preventDefault();
-    };
-
-    document.addEventListener("contextmenu", onContext);
-    document.addEventListener("copy", block);
-    document.addEventListener("cut", block);
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("dragstart", onDrag);
-
-    const onVisibility = () => {
-      if (document.hidden) {
-        setToast(true);
-        onBlocked();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
+    // Allow copying, but notify when it happens
+    document.addEventListener("copy", handleCopy);
+    window.addEventListener("keydown", onKeyDown);
 
     return () => {
-      document.removeEventListener("contextmenu", onContext);
-      document.removeEventListener("copy", block);
-      document.removeEventListener("cut", block);
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("dragstart", onDrag);
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("copy", handleCopy);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [active, onBlocked]);
+  }, [active, onCopy, onScreenshot]);
 
   return toast;
 }

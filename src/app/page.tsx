@@ -7,6 +7,7 @@ import { ChatRoom } from "@/components/ChatRoom";
 import { NewChatModal } from "@/components/NewChatModal";
 import { GamesPanel } from "@/components/GamesPanel";
 import { PeoplePanel } from "@/components/PeoplePanel";
+import { ProfilePanel } from "@/components/ProfilePanel";
 import type { Account, Room, RoomSummary } from "@/lib/types";
 
 const TOKEN_KEY = "qchat_token";
@@ -18,6 +19,7 @@ export default function Home() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [active, setActive] = useState<Room | null>(null);
   const [showNewRoom, setShowNewRoom] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
@@ -149,6 +151,26 @@ export default function Home() {
     setAccount(u);
   }, []);
 
+  const saveProfile = useCallback(
+    async (name: string, avatar: string | null) => {
+      if (!token || !account) return;
+      const res = await fetch(`/api/users/${account.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, avatar }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as Account;
+        handleProfileUpdate(updated);
+        setShowProfile(false);
+      }
+    },
+    [token, account, handleProfileUpdate]
+  );
+
   const handleRemoved = useCallback(
     (message?: string) => {
       setActive(null);
@@ -163,6 +185,7 @@ export default function Home() {
       window.history.replaceState({}, "", "/");
       if (token) void loadRooms(token);
       setShowNewRoom(false);
+      setView("chats");
       setActive(room);
     },
     [token, loadRooms]
@@ -187,12 +210,16 @@ export default function Home() {
     );
   }
 
+  const isDetailOpen = Boolean(active || view === "people" || view === "games");
+
   return (
-    <div className="flex h-dvh overflow-hidden bg-zinc-100 dark:bg-zinc-950">
+    <div className="flex h-dvh w-full overflow-hidden bg-zinc-100 dark:bg-zinc-950">
       <Sidebar
+        className={isDetailOpen ? "hidden md:flex" : "flex"}
         account={account}
         rooms={rooms}
         activeRoomId={active?.id ?? null}
+        currentView={view}
         notice={notice}
         onClearNotice={() => setNotice(null)}
         onSelect={async (room) => {
@@ -200,65 +227,66 @@ export default function Home() {
             headers: { Authorization: `Bearer ${token}` },
           });
           const data = await res.json();
-          if (res.ok) setActive(data.room);
+          if (res.ok) {
+            setActive(data.room);
+            setView("chats");
+          }
         }}
         onNewRoom={() => setShowNewRoom(true)}
-        onGames={() => {
-          setView("games");
+        onSelectView={(v) => {
+          setView(v);
           setActive(null);
         }}
-        onPeople={() => {
-          setView("people");
-          setActive(null);
-        }}
+        onProfileClick={() => setShowProfile(true)}
         onLogout={() => void logout()}
       />
 
-      {view === "people" ? (
-        <PeoplePanel
-          token={token}
-          onBack={() => setView("chats")}
-          onOpenDm={(room) => {
-            setActive(room);
-            setView("chats");
-            if (token) void loadRooms(token);
-          }}
-        />
-      ) : view === "games" ? (
-        <GamesPanel
-          account={account}
-          token={token}
-          initialCode={gameCode}
-          onBack={() => {
-            setGameCode(null);
-            setView("chats");
-          }}
-          onLogout={() => void logout()}
-        />
-      ) : active ? (
-        <ChatRoom
-          key={active.id}
-          account={account}
-          token={token}
-          room={active}
-          onLeft={() => {
-            setActive(null);
-            if (token) void loadRooms(token);
-          }}
-          onRemoved={handleRemoved}
-          onProfileUpdate={handleProfileUpdate}
-        />
-      ) : (
-        <div className="relative hidden flex-1 flex-col items-center justify-center md:flex">
-          <div className="text-center">
+      <div className={`min-h-0 flex-1 flex-col overflow-hidden ${isDetailOpen ? "flex" : "hidden md:flex"}`}>
+        {view === "people" ? (
+          <PeoplePanel
+            token={token}
+            onBack={() => setView("chats")}
+            onOpenDm={(room) => {
+              setActive(room);
+              setView("chats");
+              if (token) void loadRooms(token);
+            }}
+          />
+        ) : view === "games" ? (
+          <GamesPanel
+            account={account}
+            token={token}
+            initialCode={gameCode}
+            onBack={() => {
+              setGameCode(null);
+              setView("chats");
+            }}
+            onLogout={() => void logout()}
+          />
+        ) : active ? (
+          <ChatRoom
+            key={active.id}
+            account={account}
+            token={token}
+            room={active}
+            onBack={() => setActive(null)}
+            onLeft={() => {
+              setActive(null);
+              if (token) void loadRooms(token);
+            }}
+            onRemoved={handleRemoved}
+            onProfileUpdate={handleProfileUpdate}
+          />
+        ) : (
+          <div className="relative hidden flex-1 flex-col items-center justify-center p-6 text-center md:flex">
             <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 via-pink-500 to-amber-400 text-3xl font-bold text-white shadow-lg">
               #
             </div>
             <h2 className="mt-4 text-xl font-semibold">
               Select a chat to start messaging
             </h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Create a room, share the invite code, and chat with anyone.
+            <p className="mt-1 max-w-sm text-sm text-zinc-500">
+              Create a room, share the invite code, or search for people to start a private conversation.
             </p>
             <button
               onClick={() => setShowNewRoom(true)}
@@ -267,21 +295,22 @@ export default function Home() {
               New Room
             </button>
           </div>
-          {showNewRoom && (
-            <NewChatModal
-              token={token}
-              onClose={() => setShowNewRoom(false)}
-              onCreated={handleRoomCreated}
-            />
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      {showNewRoom && active && (
+      {showNewRoom && (
         <NewChatModal
           token={token}
           onClose={() => setShowNewRoom(false)}
           onCreated={handleRoomCreated}
+        />
+      )}
+
+      {showProfile && (
+        <ProfilePanel
+          user={account}
+          onSave={saveProfile}
+          onClose={() => setShowProfile(false)}
         />
       )}
     </div>
