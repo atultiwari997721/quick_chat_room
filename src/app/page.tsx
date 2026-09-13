@@ -8,6 +8,7 @@ import { NewChatModal } from "@/components/NewChatModal";
 import { GamesPanel } from "@/components/GamesPanel";
 import { PeoplePanel } from "@/components/PeoplePanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
+import { Logo } from "@/components/Logo";
 import type { Account, Room, RoomSummary } from "@/lib/types";
 
 const TOKEN_KEY = "qchat_token";
@@ -23,6 +24,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [sharedDraft, setSharedDraft] = useState<string | null>(null);
   const [view, setView] = useState<"chats" | "games" | "people">("chats");
   const [gameCode, setGameCode] = useState<string | null>(null);
 
@@ -60,6 +62,18 @@ export default function Home() {
     if (gcode && /^\d{6}$/.test(gcode)) {
       setGameCode(gcode);
       setView("games");
+    }
+
+    // Web Share Target API: handle shared content from phone OS share sheet
+    const shareTitle = params.get("title");
+    const shareText = params.get("text");
+    const shareUrl = params.get("url");
+    const sharedParts = [shareTitle, shareText, shareUrl].filter(Boolean);
+    if (sharedParts.length > 0) {
+      const combined = sharedParts.join(" ");
+      setSharedDraft(combined);
+      setNotice("📥 Shared content received! Select a chat room to send it.");
+      window.history.replaceState({}, "", "/");
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
@@ -269,6 +283,8 @@ export default function Home() {
             account={account}
             token={token}
             room={active}
+            initialDraft={sharedDraft}
+            onClearDraft={() => setSharedDraft(null)}
             onBack={() => setActive(null)}
             onLeft={() => {
               setActive(null);
@@ -279,9 +295,7 @@ export default function Home() {
           />
         ) : (
           <div className="relative hidden flex-1 flex-col items-center justify-center p-6 text-center md:flex">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 via-pink-500 to-amber-400 text-3xl font-bold text-white shadow-lg">
-              #
-            </div>
+            <Logo size="xl" className="mx-auto shadow-xl" />
             <h2 className="mt-4 text-xl font-semibold">
               Select a chat to start messaging
             </h2>

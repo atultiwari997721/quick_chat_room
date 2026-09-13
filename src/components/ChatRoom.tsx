@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import { Logo } from "@/components/Logo";
 import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
 import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
@@ -11,6 +12,8 @@ type ChatRoomProps = {
   account: Account;
   token: string;
   room: Room;
+  initialDraft?: string | null;
+  onClearDraft?: () => void;
   onBack?: () => void;
   onLeft: () => void;
   onRemoved: (message?: string) => void;
@@ -21,6 +24,8 @@ export function ChatRoom({
   account,
   token,
   room,
+  initialDraft,
+  onClearDraft,
   onBack,
   onLeft,
   onRemoved,
@@ -28,11 +33,18 @@ export function ChatRoom({
 }: ChatRoomProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [members, setMembers] = useState<RoomUser[]>(room.members);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialDraft ?? "");
   const [showMembers, setShowMembers] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (initialDraft) {
+      setInput(initialDraft);
+      onClearDraft?.();
+    }
+  }, [initialDraft, onClearDraft]);
   const [info, setInfo] = useState<string | null>(null);
   const [securityToast, setSecurityToast] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -495,10 +507,8 @@ export function ChatRoom({
           >
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 text-2xl font-bold text-white shadow">
-                  #
-                </div>
-                <p className="mt-2 text-sm font-medium text-zinc-500">
+                <Logo size="lg" className="shadow-md" />
+                <p className="mt-3 text-sm font-medium text-zinc-500">
                   No messages yet.
                 </p>
                 <p className="text-sm text-zinc-400">

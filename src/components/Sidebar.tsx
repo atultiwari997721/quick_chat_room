@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import { Logo } from "@/components/Logo";
 import type { Account, RoomSummary } from "@/lib/types";
 
 type SidebarProps = {
@@ -217,9 +218,7 @@ export function Sidebar({
       <ul className="flex-1 divide-y divide-zinc-100 overflow-y-auto pb-20 dark:divide-zinc-800/60 md:pb-4">
         {filtered.length === 0 && (
           <li className="flex flex-col items-center justify-center px-4 py-12 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500 dark:bg-zinc-800 dark:text-indigo-400">
-              💬
-            </div>
+            <Logo size="lg" className="shadow-md" />
             <p className="mt-3 text-sm font-medium text-zinc-600 dark:text-zinc-300">
               {rooms.length === 0
                 ? "No chats yet"

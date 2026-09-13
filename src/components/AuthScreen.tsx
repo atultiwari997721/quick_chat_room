@@ -2,6 +2,7 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { fileToDataUrl } from "@/lib/image";
+import { Logo } from "@/components/Logo";
 import type { Account } from "@/lib/types";
 
 type AuthScreenProps = {
@@ -79,11 +80,7 @@ export function AuthScreen({
         className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-8 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
       >
         <div className="text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 via-pink-500 to-violet-600 p-[3px]">
-            <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-2xl font-bold text-zinc-900 dark:bg-zinc-900 dark:text-white">
-              #
-            </div>
-          </div>
+          <Logo size="lg" className="mx-auto shadow-lg" />
           <h1 className="mt-3 text-2xl font-bold">
             {mode === "login" ? "Welcome back" : "Create your account"}
           </h1>
