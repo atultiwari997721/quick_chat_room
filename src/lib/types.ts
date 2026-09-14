@@ -58,4 +58,8 @@ export type ChatMessage = {
   roomId: string;
   createdAt: string;
   user: RoomUser;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  fileSize?: number | null;
 };

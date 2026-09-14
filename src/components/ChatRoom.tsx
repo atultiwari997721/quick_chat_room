@@ -5,6 +5,7 @@ import { Avatar } from "@/components/Avatar";
 import { Logo } from "@/components/Logo";
 import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
+import MediaViewerModal from "@/components/MediaViewerModal";
 import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
 import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
@@ -34,6 +35,20 @@ export function ChatRoom({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [members, setMembers] = useState<RoomUser[]>(room.members);
   const [input, setInput] = useState(initialDraft ?? "");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [viewerMedia, setViewerMedia] = useState<{
+    src: string;
+    alt?: string;
+    fileName?: string;
+  } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const [showMembers, setShowMembers] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -168,12 +183,109 @@ export function ChatRoom({
     };
   }, [loadMessages, loadMembers]);
 
+  const handleFileSelect = (file: File) => {
+    if (file.size > 25 * 1024 * 1024) {
+      setInfo("File size exceeds 25MB limit.");
+      setTimeout(() => setInfo(null), 3500);
+      return;
+    }
+    setPendingFile(file);
+    if (file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      setFilePreviewUrl(url);
+    } else {
+      setFilePreviewUrl(null);
+    }
+  };
+
+  const removePendingFile = () => {
+    if (filePreviewUrl) {
+      URL.revokeObjectURL(filePreviewUrl);
+    }
+    setPendingFile(null);
+    setFilePreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        const file = items[i].getAsFile();
+        if (file) {
+          handleFileSelect(file);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const content = input.trim();
-    if (!content) return;
+    if (!content && !pendingFile) return;
+
+    let attachmentData: {
+      fileUrl?: string;
+      fileName?: string;
+      fileType?: string;
+      fileSize?: number;
+    } = {};
+
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", pendingFile);
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => null);
+          setInfo(errData?.error || "Failed to upload file.");
+          setUploading(false);
+          return;
+        }
+
+        attachmentData = await uploadRes.json();
+      } catch {
+        setInfo("Error uploading file. Please try again.");
+        setUploading(false);
+        return;
+      }
+    }
+
     setInput("");
+    removePendingFile();
+    setUploading(false);
     setAtBottom(true);
+
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
@@ -181,7 +293,11 @@ export function ChatRoom({
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ content, roomId: room.id }),
+        body: JSON.stringify({
+          content: content || (attachmentData.fileName ? `Sent ${attachmentData.fileName}` : "Sent an attachment"),
+          roomId: room.id,
+          ...attachmentData,
+        }),
       });
       if (res.ok) {
         const message = (await res.json()) as ChatMessage;
@@ -488,7 +604,34 @@ export function ChatRoom({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onPaste={handlePaste}
+      >
+        {/* Drag and Drop Overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-indigo-600/80 text-white backdrop-blur-xs transition-all pointer-events-none">
+            <svg
+              className="h-16 w-16 animate-bounce"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            <p className="mt-2 text-lg font-semibold">Drop files here to send</p>
+            <p className="text-xs text-indigo-100">Photos, videos, audio, or documents up to 25MB</p>
+          </div>
+        )}
+
         {showMembers && (
           <MembersPanel
             members={members}
@@ -532,6 +675,11 @@ export function ChatRoom({
               }
 
               const mine = m.user.id === account.id;
+              const hasFile = !!m.fileUrl;
+              const isImage = m.fileType?.startsWith("image/") || (m.fileUrl && /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(m.fileUrl));
+              const isAudio = m.fileType?.startsWith("audio/") || (m.fileUrl && /\.(mp3|wav|ogg|m4a|aac)$/i.test(m.fileUrl));
+              const isVideo = m.fileType?.startsWith("video/") || (m.fileUrl && /\.(mp4|webm|mov|mkv)$/i.test(m.fileUrl));
+
               return (
                 <div
                   key={m.id}
@@ -539,7 +687,7 @@ export function ChatRoom({
                 >
                   <Avatar name={m.user.name} avatar={m.user.avatar} size="sm" />
                   <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
+                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
                       mine
                         ? "rounded-br-sm bg-gradient-to-br from-indigo-600 to-pink-500 text-white"
                         : "rounded-bl-sm border border-zinc-200 bg-white text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
@@ -552,9 +700,99 @@ export function ChatRoom({
                     >
                       {m.user.name}
                     </div>
-                    <div className="whitespace-pre-wrap break-words">
-                      {m.content}
-                    </div>
+
+                    {/* Image Attachment */}
+                    {hasFile && isImage && (
+                      <div className="mb-2 overflow-hidden rounded-xl">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={m.fileUrl!}
+                          alt={m.fileName || "Photo"}
+                          className="max-h-72 w-auto max-w-full cursor-pointer rounded-xl object-cover transition-transform hover:scale-[1.02] shadow-sm"
+                          onClick={() =>
+                            setViewerMedia({
+                              src: m.fileUrl!,
+                              alt: m.fileName || "Photo",
+                              fileName: m.fileName || undefined,
+                            })
+                          }
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
+                    {/* Video Attachment */}
+                    {hasFile && isVideo && (
+                      <div className="mb-2 overflow-hidden rounded-xl bg-black/40">
+                        <video
+                          src={m.fileUrl!}
+                          controls
+                          className="max-h-72 max-w-full rounded-xl"
+                        />
+                      </div>
+                    )}
+
+                    {/* Audio Attachment */}
+                    {hasFile && isAudio && (
+                      <div className="mb-2">
+                        <audio
+                          src={m.fileUrl!}
+                          controls
+                          className="max-w-full w-64 sm:w-72"
+                        />
+                      </div>
+                    )}
+
+                    {/* Generic Document / File Attachment */}
+                    {hasFile && !isImage && !isVideo && !isAudio && (
+                      <div
+                        className={`mb-2 flex items-center justify-between gap-3 rounded-xl p-3 ${
+                          mine
+                            ? "bg-white/15 text-white"
+                            : "bg-zinc-100 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-100"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-200">
+                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold">{m.fileName || "Attachment"}</p>
+                            {m.fileSize && (
+                              <p className="text-[10px] opacity-70">
+                                {(m.fileSize / (1024 * 1024)).toFixed(2)} MB
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <a
+                          href={m.fileUrl!}
+                          download={m.fileName || "download"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`shrink-0 rounded-full p-2 transition-colors ${
+                            mine
+                              ? "hover:bg-white/20 text-white"
+                              : "hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200"
+                          }`}
+                          title="Download file"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Message text content */}
+                    {m.content && (!hasFile || m.content !== `Sent ${m.fileName}`) && (
+                      <div className="whitespace-pre-wrap break-words">
+                        {m.content}
+                      </div>
+                    )}
+
                     <div
                       className={`mt-1 text-[10px] opacity-60 ${
                         mine ? "text-right text-white/90" : ""
@@ -570,23 +808,211 @@ export function ChatRoom({
               );
             })}
           </div>
+
+          {/* Staged File Preview Banner */}
+          {pendingFile && (
+            <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/90">
+              <div className="flex items-center gap-3 min-w-0">
+                {filePreviewUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={filePreviewUrl}
+                    alt="Staged preview"
+                    className="h-10 w-10 shrink-0 rounded-lg object-cover border border-zinc-300 dark:border-zinc-700"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                    {pendingFile.name}
+                  </p>
+                  <p className="text-[10px] text-zinc-500">
+                    {(pendingFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={removePendingFile}
+                disabled={uploading}
+                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-full hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                title="Remove attachment"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {/* Hidden File Inputs for Device Picker */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileSelect(e.target.files[0]);
+              }
+            }}
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileSelect(e.target.files[0]);
+              }
+            }}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileSelect(e.target.files[0]);
+              }
+            }}
+          />
+          <input
+            ref={docInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileSelect(e.target.files[0]);
+              }
+            }}
+          />
+
+          {/* WhatsApp-Style Attach Popup Menu */}
+          {attachMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setAttachMenuOpen(false)}
+              />
+              <div className="absolute bottom-16 left-3 z-40 flex flex-col gap-1 rounded-2xl border border-zinc-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:left-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    imageInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-pink-500 text-white shadow-sm">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <span>Photos & Images</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    videoInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500 text-white shadow-sm">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <span>Videos</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    docInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <span>Document (PDF / Office)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                  </div>
+                  <span>Any File from Device</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Chat Message Input Bar */}
           <form
             onSubmit={send}
-            className="flex items-center gap-2 border-t border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+            className="flex items-center gap-2 border-t border-zinc-200 bg-white p-2.5 sm:p-3 dark:border-zinc-800 dark:bg-zinc-900"
           >
+            {/* WhatsApp-Style '+' Attach Button */}
+            <button
+              type="button"
+              onClick={() => setAttachMenuOpen((v) => !v)}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
+                attachMenuOpen
+                  ? "bg-indigo-600 text-white rotate-45 transform duration-200"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-white"
+              }`}
+              title="Attach files, photos, videos, documents"
+              aria-label="Attach menu"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={`Message ${room.name}`}
+              placeholder={pendingFile ? "Add a caption (optional)..." : `Message ${room.name}`}
               maxLength={500}
-              className="flex-1 rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 outline-none transition-colors focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-indigo-400 dark:focus:bg-zinc-800"
+              className="flex-1 rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm outline-none transition-colors focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-indigo-400 dark:focus:bg-zinc-800"
             />
+
             <button
               type="submit"
-              disabled={!input.trim()}
-              className="rounded-full bg-gradient-to-r from-indigo-600 via-pink-500 to-amber-500 px-5 py-2 font-semibold text-white shadow transition-opacity hover:opacity-90 disabled:opacity-40"
+              disabled={(!input.trim() && !pendingFile) || uploading}
+              className="flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-600 via-pink-500 to-amber-500 px-5 py-2 text-sm font-semibold text-white shadow transition-opacity hover:opacity-90 disabled:opacity-40"
             >
-              Send
+              {uploading ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span className="hidden sm:inline">Uploading...</span>
+                </div>
+              ) : (
+                "Send"
+              )}
             </button>
           </form>
         </div>
@@ -606,6 +1032,16 @@ export function ChatRoom({
           user={account}
           onSave={saveProfile}
           onClose={() => setShowProfile(false)}
+        />
+      )}
+
+      {/* Full-Screen Media Viewer Lightbox */}
+      {viewerMedia && (
+        <MediaViewerModal
+          src={viewerMedia.src}
+          alt={viewerMedia.alt}
+          fileName={viewerMedia.fileName}
+          onClose={() => setViewerMedia(null)}
         />
       )}
     </main>

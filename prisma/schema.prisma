@@ -70,6 +70,10 @@ model Follow {
 model Message {
   id        String   @id @default(cuid())
   content   String
+  fileUrl   String?
+  fileName  String?
+  fileType  String?
+  fileSize  Int?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   roomId    String
