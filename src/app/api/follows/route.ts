@@ -64,17 +64,44 @@ export async function POST(request: NextRequest) {
 
   if (!follow) {
     follow = await prisma.follow.create({
-      data: { followerId: user.id, followeeId: targetId, status: "accepted" },
-    });
-  } else if (follow.status === "pending") {
-    follow = await prisma.follow.update({
-      where: { id: follow.id },
-      data: { status: "accepted" },
+      data: { followerId: user.id, followeeId: targetId, status: "pending" },
     });
   }
 
+  return NextResponse.json({ follow }, { status: 201 });
+}
+
+export async function PATCH(request: NextRequest) {
+  const user = await requireUser(request);
+  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
+  const body = await request.json();
+  const { followId, accept } = body as { followId?: string; accept?: boolean };
+  if (!followId || typeof accept !== "boolean") {
+    return NextResponse.json({ error: "Invalid parameters" }, { status: 400 });
+  }
+
+  const follow = await prisma.follow.findUnique({
+    where: { id: followId },
+    include: { follower: true, followee: true },
+  });
+
+  if (!follow || follow.followeeId !== user.id) {
+    return NextResponse.json({ error: "Request not found or unauthorized" }, { status: 404 });
+  }
+
+  if (!accept) {
+    await prisma.follow.delete({ where: { id: follow.id } });
+    return NextResponse.json({ ok: true, deleted: true });
+  }
+
+  const updated = await prisma.follow.update({
+    where: { id: follow.id },
+    data: { status: "accepted" },
+  });
+
   // Create or update the 1-on-1 private room
-  const members = [user.id, targetId];
+  const members = [follow.followerId, follow.followeeId];
   let existingRoom = await prisma.room.findFirst({
     where: {
       kind: { in: ["dm", "temp_dm"] },
@@ -97,7 +124,7 @@ export async function POST(request: NextRequest) {
       data: {
         code,
         kind: "temp_dm",
-        name: `${user.name} & ${target.name}`,
+        name: `${follow.follower.name} & ${follow.followee.name}`,
         adminId: null,
         members: {
           create: members.map((userId) => ({ userId })),
@@ -105,10 +132,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } else {
-    // If it exists, extend its expiry by resetting createdAt?
-    // We can't reset createdAt easily without replacing it, but we can just ensure they are in the room.
-    // DMs might naturally expire after 24h of creation regardless of message activity to match "clears in 24h"
-    // Wait, updating createdAt is possible:
     existingRoom = await prisma.room.update({
       where: { id: existingRoom.id },
       data: { createdAt: new Date() },
@@ -125,7 +148,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ follow, room: existingRoom }, { status: 201 });
+  return NextResponse.json({ follow: updated, room: existingRoom });
 }
 
 export async function DELETE(request: NextRequest) {

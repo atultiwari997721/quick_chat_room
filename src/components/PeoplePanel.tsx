@@ -114,16 +114,12 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
       body: JSON.stringify({ targetId: user.id }),
     });
     if (res.ok) {
-      const data = await res.json();
-      setNotice("Added to contacts! Chat opened.");
+      setNotice("Follow request sent.");
       setTimeout(() => setNotice(null), 2000);
       await loadFollows();
-      if (data.room) {
-        onOpenDm(data.room);
-      }
     } else {
       const data = await res.json().catch(() => null);
-      setError(data?.error ?? "Could not add contact");
+      setError(data?.error ?? "Could not send request");
     }
     setBusyId(null);
   };

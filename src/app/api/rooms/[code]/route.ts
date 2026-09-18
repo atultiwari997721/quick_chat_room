@@ -7,8 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  // Lazily cleanup using DB clock
-  await prisma.$executeRaw`DELETE FROM "Room" WHERE "kind" LIKE 'temp_%' AND "createdAt" < NOW() - INTERVAL '1 day'`;
+  // Lazy cleanup removed
 
   const room = await prisma.room.findUnique({
     where: { code },

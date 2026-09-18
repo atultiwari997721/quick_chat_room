@@ -175,8 +175,8 @@ export function ChatRoom({
   }, [room.code, account.id, token, onRemoved]);
 
   useEffect(() => {
-    const m = setInterval(loadMessages, 2000);
-    const u = setInterval(loadMembers, 4000);
+    const m = setInterval(loadMessages, 3000);
+    const u = setInterval(loadMembers, 10000);
     return () => {
       clearInterval(m);
       clearInterval(u);

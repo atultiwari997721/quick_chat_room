@@ -45,8 +45,7 @@ export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
-  // Lazily cleanup expired rooms using the database's own clock to prevent desync issues
-  await prisma.$executeRaw`DELETE FROM "Room" WHERE "kind" LIKE 'temp_%' AND "createdAt" < NOW() - INTERVAL '1 day'`;
+  // Lazy cleanup removed to prevent deletion desync issues where newly created rooms get deleted.
 
   const memberships = await prisma.roomMember.findMany({
     where: { userId: user.id },
