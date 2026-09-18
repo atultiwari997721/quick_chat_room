@@ -62,4 +62,5 @@ export type ChatMessage = {
   fileName?: string | null;
   fileType?: string | null;
   fileSize?: number | null;
+  isPermanent?: boolean;
 };

@@ -11,6 +11,26 @@ export async function GET(request: NextRequest) {
 
   await ensureDbSchema();
 
+  // Handle 24-hour expiration for temporary rooms and DMs
+  try {
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    const isTemporary = room?.kind === "temp_group" || room?.kind === "temp_dm" || room?.name.startsWith("[TEMP] ") || room?.name.startsWith("[DM] ");
+    if (isTemporary) {
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      await prisma.message.deleteMany({
+        where: {
+          roomId,
+          createdAt: { lt: yesterday },
+          NOT: {
+            content: { startsWith: "[KEEP]" },
+          },
+        },
+      });
+    }
+  } catch {
+    // ignore
+  }
+
   let rawMessages: any[] = [];
   try {
     rawMessages = await prisma.message.findMany({
@@ -40,7 +60,12 @@ export async function GET(request: NextRequest) {
     let fileName = m.fileName ?? null;
     let fileType = m.fileType ?? null;
     let fileSize = m.fileSize ?? null;
-    let content = m.content;
+    let content = m.content || "";
+
+    const isPermanent = content.startsWith("[KEEP] ");
+    if (isPermanent) {
+      content = content.slice(7);
+    }
 
     if (!fileUrl && typeof content === "string" && content.startsWith("[ATTACHMENT:")) {
       const match = content.match(/^\[ATTACHMENT:(\{.*?\})\](?:\n([\s\S]*))?$/);
@@ -65,6 +90,7 @@ export async function GET(request: NextRequest) {
       fileName,
       fileType,
       fileSize,
+      isPermanent,
       userId: m.userId,
       roomId: m.roomId,
       createdAt: m.createdAt,

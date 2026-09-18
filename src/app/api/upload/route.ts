@@ -27,28 +27,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const uploadsDir = path.join(process.cwd(), "public", "uploads");
-    await fs.mkdir(uploadsDir, { recursive: true });
-
     const originalName = file.name || "attachment";
-    const rawExt = path.extname(originalName).toLowerCase();
-    const safeExt = rawExt && rawExt.length <= 10 && /^\.[a-z0-9]+$/.test(rawExt)
-      ? rawExt
-      : "";
-    const uniqueName = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}${safeExt}`;
-    const destinationPath = path.join(uploadsDir, uniqueName);
-
+    const mimeType = file.type || "application/octet-stream";
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    await fs.writeFile(destinationPath, buffer);
 
-    const publicUrl = `/uploads/${uniqueName}`;
+    let publicUrl = "";
+    try {
+      const uploadsDir = path.join(process.cwd(), "public", "uploads");
+      await fs.mkdir(uploadsDir, { recursive: true });
+      const rawExt = path.extname(originalName).toLowerCase();
+      const safeExt = rawExt && rawExt.length <= 10 && /^\.[a-z0-9]+$/.test(rawExt)
+        ? rawExt
+        : "";
+      const uniqueName = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}${safeExt}`;
+      const destinationPath = path.join(uploadsDir, uniqueName);
+      await fs.writeFile(destinationPath, buffer);
+      publicUrl = `/uploads/${uniqueName}`;
+    } catch {
+      // Serverless read-only filesystem fallback
+      publicUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+    }
 
     return NextResponse.json(
       {
         url: publicUrl,
+        fileUrl: publicUrl,
         fileName: originalName,
-        fileType: file.type || "application/octet-stream",
+        fileType: mimeType,
         fileSize: file.size,
       },
       { status: 201 }

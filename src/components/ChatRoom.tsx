@@ -7,7 +7,6 @@ import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
 import MediaViewerModal from "@/components/MediaViewerModal";
 import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
 type ChatRoomProps = {
@@ -68,8 +67,30 @@ export function ChatRoom({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = account.id === room.adminId;
-  const isDm = room.kind === "dm";
+  const isDm = room.kind === "dm" || room.kind === "temp_dm" || room.name.startsWith("[DM] ");
   const shareUrlText = `${window.location.origin}/?room=${room.code}`;
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [activeMessageMenuId, setActiveMessageMenuId] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestNotifications = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      const perm = await Notification.requestPermission();
+      setNotifPermission(perm);
+      if (perm === "granted") {
+        setInfo("Notifications enabled!");
+        setTimeout(() => setInfo(null), 2500);
+      }
+    }
+  };
 
   const postSystemNotice = useCallback(
     async (text: string) => {
@@ -184,18 +205,181 @@ export function ChatRoom({
     };
   }, [loadMessages, loadMembers]);
 
-  const handleFileSelect = (file: File) => {
+  const lastMsgCountRef = useRef(0);
+  useEffect(() => {
+    if (messages.length > lastMsgCountRef.current && lastMsgCountRef.current > 0) {
+      const latest = messages[messages.length - 1];
+      if (
+        latest &&
+        latest.user.id !== account.id &&
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        Notification.permission === "granted" &&
+        document.hidden
+      ) {
+        try {
+          new Notification(`${latest.user.name} (${room.name})`, {
+            body: latest.content,
+            icon: latest.user.avatar || "/icons/icon-192.png",
+          });
+        } catch {
+          // ignore
+        }
+      }
+    }
+    lastMsgCountRef.current = messages.length;
+  }, [messages, account.id, room.name]);
+
+  const uploadAndSendFile = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
       setInfo("File size exceeds 25MB limit.");
       setTimeout(() => setInfo(null), 3500);
       return;
     }
-    setPendingFile(file);
-    if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      setFilePreviewUrl(url);
-    } else {
-      setFilePreviewUrl(null);
+
+    setUploading(true);
+    setInfo(`Uploading ${file.name}...`);
+
+    try {
+      let attachmentData: {
+        fileUrl?: string;
+        fileName?: string;
+        fileType?: string;
+        fileSize?: number;
+      } = {};
+
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (uploadRes.ok) {
+        attachmentData = await uploadRes.json();
+      } else {
+        // Instant data URL fallback
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        attachmentData = {
+          fileUrl: dataUrl,
+          fileName: file.name,
+          fileType: file.type || "application/octet-stream",
+          fileSize: file.size,
+        };
+      }
+
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: attachmentData.fileName ? `Sent ${attachmentData.fileName}` : "Sent an attachment",
+          roomId: room.id,
+          ...attachmentData,
+        }),
+      });
+
+      if (res.ok) {
+        const message = (await res.json()) as ChatMessage;
+        setMessages((prev) => [...prev, message]);
+        scrollToBottom();
+        setInfo(null);
+      } else {
+        const data = await res.json().catch(() => null);
+        setInfo(data?.error || "Could not send attachment.");
+      }
+    } catch (err) {
+      console.error("Upload & send error:", err);
+      setInfo("Failed to send file. Please try again.");
+    } finally {
+      setUploading(false);
+      removePendingFile();
+    }
+  };
+
+  const handleFileSelect = (file: File) => {
+    void uploadAndSendFile(file);
+  };
+
+  const startEditing = (m: ChatMessage) => {
+    setEditingMessageId(m.id);
+    setEditText(m.content.replace(" (edited)", ""));
+    setActiveMessageMenuId(null);
+  };
+
+  const saveEdit = async (messageId: string) => {
+    if (!editText.trim()) return;
+    try {
+      const res = await fetch(`/api/messages/${messageId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "edit", content: editText.trim() }),
+      });
+      if (res.ok) {
+        const { message } = await res.json();
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === messageId ? { ...msg, content: message.content } : msg))
+        );
+        setEditingMessageId(null);
+      } else {
+        const d = await res.json().catch(() => null);
+        setInfo(d?.error || "Failed to edit message");
+      }
+    } catch {
+      setInfo("Failed to edit message");
+    }
+  };
+
+  const togglePermanentMessage = async (messageId: string) => {
+    setActiveMessageMenuId(null);
+    try {
+      const res = await fetch(`/api/messages/${messageId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "toggle_permanent" }),
+      });
+      if (res.ok) {
+        const { message } = await res.json();
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, isPermanent: message.isPermanent } : msg
+          )
+        );
+        setInfo(message.isPermanent ? "Message kept permanently! 📌" : "Message will expire in 24h.");
+        setTimeout(() => setInfo(null), 2500);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    setActiveMessageMenuId(null);
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      const res = await fetch(`/api/messages/${messageId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -453,7 +637,6 @@ export function ChatRoom({
 
         {/* Desktop actions */}
         <div className="hidden md:flex md:items-center md:gap-1.5">
-          <ThemeToggle />
           {!isDm && (
             <button
               onClick={copyLink}
@@ -473,6 +656,17 @@ export function ChatRoom({
             className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
             Profile
+          </button>
+          <button
+            onClick={requestNotifications}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              notifPermission === "granted"
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            }`}
+            title="Enable browser notifications"
+          >
+            {notifPermission === "granted" ? "🔔 Notifications On" : "🔔 Alerts"}
           </button>
           {!isDm && (
             <button
@@ -502,7 +696,6 @@ export function ChatRoom({
 
         {/* Mobile actions */}
         <div className="flex items-center gap-1 md:hidden">
-          <ThemeToggle />
           {!isDm && (
             <button
               onClick={() => setShowMembers((v) => !v)}
@@ -539,6 +732,16 @@ export function ChatRoom({
               onClick={() => setMenuOpen(false)}
             />
             <div className="absolute right-3 top-12 z-50 w-48 rounded-2xl border border-zinc-200 bg-white py-1.5 shadow-xl dark:border-zinc-800 dark:bg-zinc-900 md:hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void requestNotifications();
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                🔔 {notifPermission === "granted" ? "Notifications On" : "Enable Notifications"}
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -686,22 +889,96 @@ export function ChatRoom({
               return (
                 <div
                   key={m.id}
-                  className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}
+                  className={`group relative flex items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}
                 >
                   <Avatar name={m.user.name} avatar={m.user.avatar} size="sm" />
                   <div
-                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+                    className={`relative max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
                       mine
                         ? "rounded-br-sm bg-gradient-to-br from-indigo-600 to-pink-500 text-white"
                         : "rounded-bl-sm border border-zinc-200 bg-white text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
                     }`}
                   >
-                    <div
-                      className={`mb-1 text-xs font-medium opacity-80 ${
-                        mine ? "text-right text-white/90" : ""
-                      }`}
-                    >
-                      {m.user.name}
+                    {/* Header: Author name + Three dots button */}
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className={`text-xs font-medium opacity-80 ${mine ? "text-white/90" : ""}`}>
+                        {m.user.name}
+                      </span>
+
+                      {/* WhatsApp Style 3-Dots Action Button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveMessageMenuId(activeMessageMenuId === m.id ? null : m.id)}
+                          className={`rounded-full p-1 transition-opacity ${
+                            activeMessageMenuId === m.id
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          } ${
+                            mine
+                              ? "hover:bg-white/20 text-white/90"
+                              : "hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500"
+                          }`}
+                          title="Message options"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                          </svg>
+                        </button>
+
+                        {/* Message Action Dropdown */}
+                        {activeMessageMenuId === m.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-30"
+                              onClick={() => setActiveMessageMenuId(null)}
+                            />
+                            <div
+                              className={`absolute ${
+                                mine ? "right-0" : "left-0"
+                              } top-6 z-40 w-44 rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900`}
+                            >
+                              {mine && (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditing(m)}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                >
+                                  ✏️ Edit message
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void togglePermanentMessage(m.id)}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                              >
+                                {m.isPermanent ? "📌 Remove Permanent" : "📌 Keep in Chat (Permanent)"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(m.content);
+                                  setActiveMessageMenuId(null);
+                                  setInfo("Copied text!");
+                                  setTimeout(() => setInfo(null), 1500);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                              >
+                                📋 Copy text
+                              </button>
+                              {(mine || isAdmin) && (
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteMessage(m.id)}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
+                                >
+                                  🗑️ Delete message
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     {/* Image Attachment */}
@@ -789,22 +1066,57 @@ export function ChatRoom({
                       </div>
                     )}
 
-                    {/* Message text content */}
-                    {m.content && (!hasFile || m.content !== `Sent ${m.fileName}`) && (
-                      <div className="whitespace-pre-wrap break-words">
-                        {m.content}
+                    {/* Message text content or Inline Edit mode */}
+                    {editingMessageId === m.id ? (
+                      <div className="my-1.5 space-y-2">
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 bg-white/20 p-2 text-sm text-inherit outline-none focus:ring-2 focus:ring-amber-400"
+                          rows={2}
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingMessageId(null)}
+                            className="rounded-md bg-black/20 px-2 py-1 text-xs font-medium hover:bg-black/30"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveEdit(m.id)}
+                            className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-indigo-600 shadow-sm hover:bg-white/90"
+                          >
+                            Save
+                          </button>
+                        </div>
                       </div>
+                    ) : (
+                      m.content && (!hasFile || m.content !== `Sent ${m.fileName}`) && (
+                        <div className="whitespace-pre-wrap break-words">
+                          {m.content}
+                        </div>
+                      )
                     )}
 
+                    {/* Footer: timestamp + pin icon */}
                     <div
-                      className={`mt-1 text-[10px] opacity-60 ${
-                        mine ? "text-right text-white/90" : ""
+                      className={`mt-1 flex items-center gap-1.5 text-[10px] opacity-75 ${
+                        mine ? "justify-end text-white/90" : "justify-start"
                       }`}
                     >
-                      {new Date(m.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {m.isPermanent && (
+                        <span title="Permanent (Won't expire in 24h)" className="text-[11px]">
+                          📌
+                        </span>
+                      )}
+                      <span>
+                        {new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
                     </div>
                   </div>
                 </div>
