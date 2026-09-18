@@ -128,6 +128,28 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
     setBusyId(null);
   };
 
+  const unfollow = async (targetId: string) => {
+    setBusyId(targetId);
+    setError(null);
+    const res = await fetch("/api/follows", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ targetId }),
+    });
+    if (res.ok) {
+      setNotice("Unfollowed successfully.");
+      setTimeout(() => setNotice(null), 2000);
+      await loadFollows();
+    } else {
+      const data = await res.json().catch(() => null);
+      setError(data?.error ?? "Could not unfollow");
+    }
+    setBusyId(null);
+  };
+
   const answer = async (followId: string, accept: boolean) => {
     setBusyId(followId);
     setError(null);
@@ -383,18 +405,35 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
             <h2 className="px-4 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
               Following ({follows.following.length})
             </h2>
-            {follows.following.map((f) => (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-3">
-                <Avatar name={f.user.name} avatar={f.user.avatar} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{f.user.name}</p>
-                  <p className="truncate text-xs text-zinc-500">@{f.user.username}</p>
+              {follows.following.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 px-4 py-3">
+                  <Avatar name={f.user.name} avatar={f.user.avatar} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{f.user.name}</p>
+                    <p className="truncate text-xs text-zinc-500">@{f.user.username}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void openDmFor(f.user)}
+                      disabled={busyId === f.user.id}
+                      className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      Message
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Unfollow @${f.user.username}?`)) {
+                          void unfollow(f.user.id);
+                        }
+                      }}
+                      disabled={busyId === f.user.id}
+                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:border-red-400 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-red-500 dark:hover:text-red-400"
+                    >
+                      Unfollow
+                    </button>
+                  </div>
                 </div>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                  Following
-                </span>
-              </div>
-            ))}
+              ))}
           </section>
         )}
       </div>

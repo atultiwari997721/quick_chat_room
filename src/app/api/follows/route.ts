@@ -127,3 +127,27 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ follow, room: existingRoom }, { status: 201 });
 }
+
+export async function DELETE(request: NextRequest) {
+  const user = await requireUser(request);
+  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
+  const body = await request.json();
+  const { targetId } = body as { targetId?: string };
+
+  if (!targetId) {
+    return NextResponse.json({ error: "Target ID required" }, { status: 400 });
+  }
+
+  // Delete the follow relationship
+  await prisma.follow.deleteMany({
+    where: {
+      OR: [
+        { followerId: user.id, followeeId: targetId },
+        { followerId: targetId, followeeId: user.id },
+      ],
+    },
+  });
+
+  return NextResponse.json({ success: true });
+}

@@ -17,13 +17,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  await prisma.room.deleteMany({
-    where: {
-      kind: { startsWith: "temp_" },
-      createdAt: { lt: yesterday },
-    },
-  });
+  // Lazily cleanup using DB clock
+  await prisma.$executeRaw`DELETE FROM "Room" WHERE "kind" LIKE 'temp_%' AND "createdAt" < NOW() - INTERVAL '1 day'`;
 
   const room = await prisma.room.findUnique({
     where: { code: code.trim() },
