@@ -17,6 +17,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await prisma.room.deleteMany({
+    where: {
+      kind: { startsWith: "temp_" },
+      createdAt: { lt: yesterday },
+    },
+  });
+
   const room = await prisma.room.findUnique({
     where: { code: code.trim() },
   });

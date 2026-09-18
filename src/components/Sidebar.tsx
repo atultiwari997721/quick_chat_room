@@ -295,66 +295,6 @@ export function Sidebar({
         })}
       </ul>
 
-      {/* Floating Action Button (FAB) on mobile for quick Room Creation */}
-      <button
-        type="button"
-        onClick={onNewRoom}
-        aria-label="Create or join room"
-        className="fixed bottom-20 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-600 via-pink-500 to-amber-500 text-2xl font-bold text-white shadow-lg transition-transform hover:scale-105 active:scale-95 md:hidden"
-      >
-        +
-      </button>
-
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t border-zinc-200 bg-white/95 px-2 py-2 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-900/95 md:hidden">
-        <button
-          type="button"
-          onClick={handleGoChats}
-          className={`flex flex-col items-center gap-1 rounded-xl px-4 py-1.5 transition-colors ${
-            currentView === "chats"
-              ? "text-indigo-600 dark:text-indigo-400 font-semibold"
-              : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          }`}
-        >
-          <span className="text-xl leading-none">💬</span>
-          <span className="text-[11px] font-medium">Chats</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleGoPeople}
-          className={`flex flex-col items-center gap-1 rounded-xl px-4 py-1.5 transition-colors ${
-            currentView === "people"
-              ? "text-indigo-600 dark:text-indigo-400 font-semibold"
-              : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          }`}
-        >
-          <span className="text-xl leading-none">👥</span>
-          <span className="text-[11px] font-medium">People</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleGoGames}
-          className={`flex flex-col items-center gap-1 rounded-xl px-4 py-1.5 transition-colors ${
-            currentView === "games"
-              ? "text-indigo-600 dark:text-indigo-400 font-semibold"
-              : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          }`}
-        >
-          <span className="text-xl leading-none">🎮</span>
-          <span className="text-[11px] font-medium">Games</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onProfileClick}
-          className="flex flex-col items-center gap-1 rounded-xl px-4 py-1.5 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          <span className="text-xl leading-none">👤</span>
-          <span className="text-[11px] font-medium">Profile</span>
-        </button>
-      </nav>
     </aside>
   );
 }

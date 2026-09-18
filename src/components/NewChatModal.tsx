@@ -13,6 +13,7 @@ export function NewChatModal({ token, onClose, onCreated }: NewChatModalProps) {
   const [mode, setMode] = useState<"create" | "join">("create");
   const [roomName, setRoomName] = useState("");
   const [code, setCode] = useState("");
+  const [isTemporary, setIsTemporary] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -31,7 +32,7 @@ export function NewChatModal({ token, onClose, onCreated }: NewChatModalProps) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(
-            mode === "create" ? { roomName: roomName.trim() } : { code: code.trim() }
+            mode === "create" ? { roomName: roomName.trim(), isTemporary } : { code: code.trim() }
           ),
         }
       );
@@ -98,16 +99,29 @@ export function NewChatModal({ token, onClose, onCreated }: NewChatModalProps) {
         </div>
 
         {mode === "create" ? (
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium">Room name</span>
-            <input
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              placeholder="e.g. Family Group"
-              maxLength={50}
-              className="rounded-lg border border-zinc-300 px-4 py-2 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:focus:border-indigo-400"
-            />
-          </label>
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium">Room name</span>
+              <input
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                placeholder="e.g. Family Group"
+                maxLength={50}
+                className="rounded-lg border border-zinc-300 px-4 py-2 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:focus:border-indigo-400"
+              />
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer mt-1">
+              <input
+                type="checkbox"
+                checked={isTemporary}
+                onChange={(e) => setIsTemporary(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600"
+              />
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Temporary Room (Deletes in 24 hours)
+              </span>
+            </label>
+          </div>
         ) : (
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">6-digit room code</span>

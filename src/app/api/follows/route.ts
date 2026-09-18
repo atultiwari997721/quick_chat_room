@@ -58,47 +58,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const existing = await prisma.follow.findUnique({
+  let follow = await prisma.follow.findUnique({
     where: { followerId_followeeId: { followerId: user.id, followeeId: targetId } },
   });
-  if (existing) {
-    return NextResponse.json({ follow: existing });
-  }
 
-  const follow = await prisma.follow.create({
-    data: { followerId: user.id, followeeId: targetId, status: "pending" },
-  });
-  return NextResponse.json({ follow }, { status: 201 });
-}
-
-export async function PATCH(request: NextRequest) {
-  const user = await requireUser(request);
-  if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
-
-  const body = await request.json();
-  const { followId, accept } = body as { followId?: string; accept?: boolean };
-
-  const follow = await prisma.follow.findUnique({
-    where: { id: followId },
-    include: { follower: true, followee: true },
-  });
   if (!follow) {
-    return NextResponse.json({ error: "Follow request not found" }, { status: 404 });
-  }
-  if (follow.followeeId !== user.id) {
-    return NextResponse.json({ error: "Not your follow request" }, { status: 403 });
+    follow = await prisma.follow.create({
+      data: { followerId: user.id, followeeId: targetId, status: "accepted" },
+    });
+  } else if (follow.status === "pending") {
+    follow = await prisma.follow.update({
+      where: { id: follow.id },
+      data: { status: "accepted" },
+    });
   }
 
-  if (!accept) {
-    await prisma.follow.delete({ where: { id: followId } });
-    return NextResponse.json({ ok: true });
-  }
-
-  // Accept: mark accepted and open a private 1-on-1 room between the two users.
-  const members = [follow.followerId, follow.followeeId];
-  const existingRoom = await prisma.room.findFirst({
+  // Create or update the 1-on-1 private room
+  const members = [user.id, targetId];
+  let existingRoom = await prisma.room.findFirst({
     where: {
-      kind: "dm",
+      kind: { in: ["dm", "temp_dm"] },
       members: {
         every: { userId: { in: members } },
       },
@@ -114,13 +93,11 @@ export async function PATCH(request: NextRequest) {
       return c;
     })();
 
-    const me = follow.followee;
-    const them = follow.follower;
-    await prisma.room.create({
+    existingRoom = await prisma.room.create({
       data: {
         code,
-        kind: "dm",
-        name: `${me.name} & ${them.name}`,
+        kind: "temp_dm",
+        name: `${user.name} & ${target.name}`,
         adminId: null,
         members: {
           create: members.map((userId) => ({ userId })),
@@ -128,39 +105,25 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } else {
-    const dmId = existingRoom!.id;
+    // If it exists, extend its expiry by resetting createdAt?
+    // We can't reset createdAt easily without replacing it, but we can just ensure they are in the room.
+    // DMs might naturally expire after 24h of creation regardless of message activity to match "clears in 24h"
+    // Wait, updating createdAt is possible:
+    existingRoom = await prisma.room.update({
+      where: { id: existingRoom.id },
+      data: { createdAt: new Date() },
+    });
+    
     await Promise.all(
       members.map((userId) =>
         prisma.roomMember.upsert({
-          where: { roomId_userId: { roomId: dmId, userId } },
-          create: { roomId: dmId, userId },
+          where: { roomId_userId: { roomId: existingRoom!.id, userId } },
+          create: { roomId: existingRoom!.id, userId },
           update: {},
         })
       )
     );
   }
 
-  await prisma.follow.update({
-    where: { id: followId },
-    data: { status: "accepted" },
-  });
-
-  const dmRoom = await prisma.room.findFirst({
-    where: {
-      kind: "dm",
-      members: { every: { userId: { in: members } } },
-    },
-    include: { members: { include: { user: true } } },
-  });
-  if (!dmRoom) {
-    return NextResponse.json({ error: "Could not open the chat" }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    ok: true,
-    room: {
-      ...dmRoom,
-      members: dmRoom.members.map((m) => toPublicUser(m.user)),
-    },
-  });
+  return NextResponse.json({ follow, room: existingRoom }, { status: 201 });
 }

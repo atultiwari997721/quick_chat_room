@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
   const body = await request.json();
-  const { roomName } = body as { roomName?: string };
+  const { roomName, isTemporary = false } = body as { roomName?: string; isTemporary?: boolean };
 
   let code = generateCode();
   while (await prisma.room.findUnique({ where: { code } })) {
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       code,
       name: roomName?.trim() || `${user.name}'s Room`,
       adminId: user.id,
+      kind: isTemporary ? "temp_group" : "group",
       members: { create: { userId: user.id } },
     },
     include: { members: { include: { user: true } } },
@@ -44,12 +45,21 @@ export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
+  // Lazily cleanup expired rooms across the whole app for this request
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await prisma.room.deleteMany({
+    where: {
+      kind: { startsWith: "temp_" },
+      createdAt: { lt: yesterday },
+    },
+  });
+
   const memberships = await prisma.roomMember.findMany({
     where: { userId: user.id },
     include: {
       room: {
         include: {
-          members: true,
+          members: { include: { user: true } },
           messages: { orderBy: { createdAt: "desc" }, take: 1, include: { user: true } },
         },
       },
@@ -60,11 +70,19 @@ export async function GET(request: NextRequest) {
   const rooms = memberships
     .map((m) => {
       const room = m.room;
+      let name = room.name;
+      if (room.kind === "dm" || room.kind === "temp_dm") {
+        const other = room.members.find(member => member.userId !== user.id);
+        if (other) {
+          name = other.user.name;
+        }
+      }
+
       const last = room.messages[0];
       return {
         id: room.id,
         code: room.code,
-        name: room.name,
+        name,
         kind: room.kind,
         adminId: room.adminId,
         createdAt: room.createdAt.toISOString(),

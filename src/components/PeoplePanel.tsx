@@ -102,8 +102,8 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
     [follows]
   );
 
-  const sendRequest = async (userId: string) => {
-    setBusyId(userId);
+  const sendRequest = async (user: OtherUser) => {
+    setBusyId(user.id);
     setError(null);
     const res = await fetch("/api/follows", {
       method: "POST",
@@ -111,15 +111,19 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ targetId: userId }),
+      body: JSON.stringify({ targetId: user.id }),
     });
     if (res.ok) {
-      setNotice("Follow request sent!");
+      const data = await res.json();
+      setNotice("Added to contacts! Chat opened.");
       setTimeout(() => setNotice(null), 2000);
       await loadFollows();
+      if (data.room) {
+        onOpenDm(data.room);
+      }
     } else {
       const data = await res.json().catch(() => null);
-      setError(data?.error ?? "Could not send request");
+      setError(data?.error ?? "Could not add contact");
     }
     setBusyId(null);
   };
@@ -294,7 +298,7 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
                   </div>
                   {rel === "none" && (
                     <button
-                      onClick={() => void sendRequest(u.id)}
+                      onClick={() => void sendRequest(u)}
                       disabled={busyId === u.id}
                       className="rounded-full bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
                     >

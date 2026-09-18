@@ -7,6 +7,14 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await prisma.room.deleteMany({
+    where: {
+      kind: { startsWith: "temp_" },
+      createdAt: { lt: yesterday },
+    },
+  });
+
   const room = await prisma.room.findUnique({
     where: { code },
     include: {
