@@ -86,7 +86,24 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
-        setRooms(data.rooms);
+        setRooms((prev) => {
+          if (
+            prev.length === data.rooms.length &&
+            prev.every((r, idx) => {
+              const d = data.rooms[idx];
+              return (
+                d &&
+                r.id === d.id &&
+                r.name === d.name &&
+                r.memberCount === d.memberCount &&
+                r.lastMessage?.id === d.lastMessage?.id
+              );
+            })
+          ) {
+            return prev;
+          }
+          return data.rooms;
+        });
       }
     } catch {
       // ignore

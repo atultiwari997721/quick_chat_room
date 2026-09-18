@@ -6,6 +6,8 @@ import { Logo } from "@/components/Logo";
 import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
 import MediaViewerModal from "@/components/MediaViewerModal";
+import DocumentViewerModal from "@/components/DocumentViewerModal";
+import { downloadFileBlob } from "@/lib/downloadHelper";
 import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
 import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
@@ -43,6 +45,12 @@ export function ChatRoom({
     src: string;
     alt?: string;
     fileName?: string;
+  } | null>(null);
+  const [viewerDoc, setViewerDoc] = useState<{
+    src: string;
+    fileName?: string;
+    fileType?: string;
+    fileSize?: number;
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,9 +159,13 @@ export function ChatRoom({
     setAtBottom(dist < 80);
   }, []);
 
+  const prevMsgCountRef = useRef(0);
   useEffect(() => {
-    if (atBottom) scrollToBottom();
-  }, [messages, atBottom, scrollToBottom]);
+    if (messages.length > prevMsgCountRef.current) {
+      if (atBottom) scrollToBottom();
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages.length, atBottom, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom(false);
@@ -167,7 +179,39 @@ export function ChatRoom({
       });
       if (res.ok) {
         const data = (await res.json()) as ChatMessage[];
-        setMessages(data);
+        setMessages((prev) => {
+          // If message counts match, check if all fields are identical to prevent re-render
+          if (prev.length === data.length) {
+            let identical = true;
+            for (let i = 0; i < prev.length; i++) {
+              const p = prev[i];
+              const d = data[i];
+              if (
+                !d ||
+                p.id !== d.id ||
+                p.content !== d.content ||
+                p.isPermanent !== d.isPermanent ||
+                p.fileUrl !== d.fileUrl ||
+                p.sending
+              ) {
+                identical = false;
+                break;
+              }
+            }
+            if (identical) return prev;
+          }
+
+          // Preserve any in-flight optimistic messages that have not yet landed
+          const pendingOptimistic = prev.filter((m) => m.id.startsWith("optimistic-"));
+          if (pendingOptimistic.length > 0) {
+            const stillPending = pendingOptimistic.filter(
+              (opt) => !data.some((d) => d.content === opt.content && d.userId === opt.userId)
+            );
+            return [...data, ...stillPending];
+          }
+
+          return data;
+        });
       }
     } catch {
       // ignore
@@ -186,7 +230,15 @@ export function ChatRoom({
       }
       if (res.ok) {
         const data = (await res.json()) as { room: Room };
-        setMembers(data.room.members);
+        setMembers((prev) => {
+          if (
+            prev.length === data.room.members.length &&
+            prev.every((m, idx) => m.id === data.room.members[idx]?.id && m.name === data.room.members[idx]?.name)
+          ) {
+            return prev;
+          }
+          return data.room.members;
+        });
         if (!data.room.members.some((u) => u.id === account.id)) {
           onRemoved();
         }
@@ -237,8 +289,34 @@ export function ChatRoom({
       return;
     }
 
+    const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    let localBlobUrl: string | undefined;
+    try {
+      localBlobUrl = URL.createObjectURL(file);
+    } catch {
+      // ignore
+    }
+
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      roomId: room.id,
+      userId: account.id,
+      content: `Sent ${file.name}`,
+      createdAt: new Date().toISOString(),
+      user: account,
+      fileUrl: localBlobUrl,
+      fileName: file.name,
+      fileType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      isPermanent: false,
+      sending: true,
+    };
+
+    // Show immediately in chat!
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setAtBottom(true);
+    scrollToBottom();
     setUploading(true);
-    setInfo(`Uploading ${file.name}...`);
 
     try {
       let attachmentData: {
@@ -289,16 +367,17 @@ export function ChatRoom({
 
       if (res.ok) {
         const message = (await res.json()) as ChatMessage;
-        setMessages((prev) => [...prev, message]);
-        scrollToBottom();
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? message : m)));
         setInfo(null);
       } else {
         const data = await res.json().catch(() => null);
         setInfo(data?.error || "Could not send attachment.");
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
       }
     } catch (err) {
       console.error("Upload & send error:", err);
       setInfo("Failed to send file. Please try again.");
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
       setUploading(false);
       removePendingFile();
@@ -431,6 +510,40 @@ export function ChatRoom({
     const content = input.trim();
     if (!content && !pendingFile) return;
 
+    const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    let optimisticFileUrl: string | undefined;
+
+    if (pendingFile) {
+      try {
+        optimisticFileUrl = URL.createObjectURL(pendingFile);
+      } catch {
+        // ignore
+      }
+    }
+
+    const optimisticMessage: ChatMessage = {
+      id: tempId,
+      roomId: room.id,
+      userId: account.id,
+      content: content || (pendingFile ? `Sent ${pendingFile.name}` : "Sent an attachment"),
+      createdAt: new Date().toISOString(),
+      user: account,
+      fileUrl: optimisticFileUrl,
+      fileName: pendingFile?.name,
+      fileType: pendingFile?.type,
+      fileSize: pendingFile?.size,
+      isPermanent: false,
+      sending: true,
+    };
+
+    // Instant UI display!
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setInput("");
+    const fileToSend = pendingFile;
+    removePendingFile();
+    setAtBottom(true);
+    scrollToBottom();
+
     let attachmentData: {
       fileUrl?: string;
       fileName?: string;
@@ -438,11 +551,11 @@ export function ChatRoom({
       fileSize?: number;
     } = {};
 
-    if (pendingFile) {
+    if (fileToSend) {
       setUploading(true);
       try {
         const formData = new FormData();
-        formData.append("file", pendingFile);
+        formData.append("file", fileToSend);
         const uploadRes = await fetch("/api/upload", {
           method: "POST",
           headers: {
@@ -455,6 +568,7 @@ export function ChatRoom({
           const errData = await uploadRes.json().catch(() => null);
           setInfo(errData?.error || "Failed to upload file.");
           setUploading(false);
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
           return;
         }
 
@@ -462,14 +576,12 @@ export function ChatRoom({
       } catch {
         setInfo("Error uploading file. Please try again.");
         setUploading(false);
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
         return;
+      } finally {
+        setUploading(false);
       }
     }
-
-    setInput("");
-    removePendingFile();
-    setUploading(false);
-    setAtBottom(true);
 
     try {
       const res = await fetch("/api/messages", {
@@ -486,14 +598,14 @@ export function ChatRoom({
       });
       if (res.ok) {
         const message = (await res.json()) as ChatMessage;
-        setMessages((prev) => [...prev, message]);
-        scrollToBottom();
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? message : m)));
       } else {
         const data = await res.json().catch(() => null);
         if (data?.error) setInfo(data.error);
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
       }
     } catch {
-      // ignore
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     }
   };
 
@@ -1026,43 +1138,69 @@ export function ChatRoom({
                     {/* Generic Document / File Attachment */}
                     {hasFile && !isImage && !isVideo && !isAudio && (
                       <div
-                        className={`mb-2 flex items-center justify-between gap-3 rounded-xl p-3 ${
+                        onClick={() => {
+                          if (m.fileUrl) {
+                            setViewerDoc({
+                              src: m.fileUrl,
+                              fileName: m.fileName || "document",
+                              fileType: m.fileType || "",
+                              fileSize: m.fileSize || undefined,
+                            });
+                          }
+                        }}
+                        className={`mb-2 flex items-center justify-between gap-3 rounded-xl p-3 cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] ${
                           mine
-                            ? "bg-white/15 text-white"
-                            : "bg-zinc-100 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-100"
+                            ? "bg-white/15 text-white hover:bg-white/20"
+                            : "bg-zinc-100 text-zinc-800 hover:bg-zinc-200/80 dark:bg-zinc-700/60 dark:text-zinc-100 dark:hover:bg-zinc-700"
                         }`}
+                        title="Tap to view or download document"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-200">
-                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
+                          <div
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-bold text-xs uppercase shadow-sm ${
+                              (m.fileName || "").toLowerCase().endsWith(".pdf") || (m.fileType || "").includes("pdf")
+                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                            }`}
+                          >
+                            {(m.fileName || "").toLowerCase().endsWith(".pdf") || (m.fileType || "").includes("pdf") ? (
+                              <span>PDF</span>
+                            ) : (
+                              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            )}
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-xs font-semibold">{m.fileName || "Attachment"}</p>
-                            {m.fileSize && (
-                              <p className="text-[10px] opacity-70">
-                                {(m.fileSize / (1024 * 1024)).toFixed(2)} MB
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2 text-[10px] opacity-75">
+                              {m.fileSize && (
+                                <span>{(m.fileSize / (1024 * 1024)).toFixed(2)} MB</span>
+                              )}
+                              <span>• Tap to preview</span>
+                            </div>
                           </div>
                         </div>
-                        <a
-                          href={m.fileUrl!}
-                          download={m.fileName || "download"}
-                          target="_blank"
-                          rel="noopener noreferrer"
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (m.fileUrl) {
+                              void downloadFileBlob(m.fileUrl, m.fileName || "document");
+                            }
+                          }}
                           className={`shrink-0 rounded-full p-2 transition-colors ${
                             mine
                               ? "hover:bg-white/20 text-white"
-                              : "hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200"
+                              : "hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200"
                           }`}
-                          title="Download file"
+                          title="Download document to device"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
-                        </a>
+                        </button>
                       </div>
                     )}
 
@@ -1100,23 +1238,32 @@ export function ChatRoom({
                       )
                     )}
 
-                    {/* Footer: timestamp + pin icon */}
+                    {/* Footer: timestamp + pin icon + sending state */}
                     <div
                       className={`mt-1 flex items-center gap-1.5 text-[10px] opacity-75 ${
                         mine ? "justify-end text-white/90" : "justify-start"
                       }`}
                     >
-                      {m.isPermanent && (
-                        <span title="Permanent (Won't expire in 24h)" className="text-[11px]">
-                          📌
+                      {m.sending ? (
+                        <span className="flex items-center gap-1 text-[10px] italic">
+                          <span className="h-2.5 w-2.5 animate-spin rounded-full border border-current border-t-transparent inline-block" />
+                          <span>Sending...</span>
                         </span>
+                      ) : (
+                        <>
+                          {m.isPermanent && (
+                            <span title="Permanent (Won't expire in 24h)" className="text-[11px]">
+                              📌
+                            </span>
+                          )}
+                          <span>
+                            {new Date(m.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </>
                       )}
-                      <span>
-                        {new Date(m.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -1357,6 +1504,17 @@ export function ChatRoom({
           alt={viewerMedia.alt}
           fileName={viewerMedia.fileName}
           onClose={() => setViewerMedia(null)}
+        />
+      )}
+
+      {/* WhatsApp-Style In-App Document & PDF Viewer Modal */}
+      {viewerDoc && (
+        <DocumentViewerModal
+          src={viewerDoc.src}
+          fileName={viewerDoc.fileName}
+          fileType={viewerDoc.fileType}
+          fileSize={viewerDoc.fileSize}
+          onClose={() => setViewerDoc(null)}
         />
       )}
     </main>
