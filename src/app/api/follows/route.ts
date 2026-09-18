@@ -102,14 +102,30 @@ export async function PATCH(request: NextRequest) {
 
   // Create or update the 1-on-1 private room
   const members = [follow.followerId, follow.followeeId];
-  let existingRoom = await prisma.room.findFirst({
-    where: {
-      kind: { in: ["dm", "temp_dm"] },
-      members: {
-        every: { userId: { in: members } },
+  let existingRoom;
+  try {
+    existingRoom = await prisma.room.findFirst({
+      where: {
+        kind: { in: ["dm", "temp_dm"] },
+        members: {
+          every: { userId: { in: members } },
+        },
       },
-    },
-  });
+    });
+  } catch (err: any) {
+    if (err?.code === "P2021" || err?.message?.includes("column") || err?.message?.includes("kind")) {
+      existingRoom = await prisma.room.findFirst({
+        where: {
+          name: { startsWith: "[DM] " },
+          members: {
+            every: { userId: { in: members } },
+          },
+        },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   if (!existingRoom) {
     const code = await (async () => {
@@ -120,17 +136,35 @@ export async function PATCH(request: NextRequest) {
       return c;
     })();
 
-    existingRoom = await prisma.room.create({
-      data: {
-        code,
-        kind: "temp_dm",
-        name: `${follow.follower.name} & ${follow.followee.name}`,
-        adminId: null,
-        members: {
-          create: members.map((userId) => ({ userId })),
+    try {
+      existingRoom = await prisma.room.create({
+        data: {
+          code,
+          kind: "temp_dm",
+          name: `${follow.follower.name} & ${follow.followee.name}`,
+          adminId: null,
+          members: {
+            create: members.map((userId) => ({ userId })),
+          },
         },
-      },
-    });
+      });
+    } catch (err: any) {
+      if (err?.code === "P2021" || err?.message?.includes("column") || err?.message?.includes("kind")) {
+        existingRoom = await prisma.room.create({
+          data: {
+            code,
+            name: `[DM] ${follow.follower.name} & ${follow.followee.name}`,
+            adminId: null,
+            members: {
+              create: members.map((userId) => ({ userId })),
+            },
+          },
+        });
+        (existingRoom as any).kind = "temp_dm";
+      } else {
+        throw err;
+      }
+    }
   } else {
     existingRoom = await prisma.room.update({
       where: { id: existingRoom.id },

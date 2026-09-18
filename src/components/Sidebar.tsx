@@ -52,7 +52,17 @@ export function Sidebar({
 }: SidebarProps) {
   const [query, setQuery] = useState("");
   const [showMenu, setShowMenu] = useState(false);
+  const [isDark, setIsDark] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -72,7 +82,6 @@ export function Sidebar({
       document.documentElement.classList.add("dark");
       localStorage.theme = "dark";
     }
-    setShowMenu(false);
   };
 
   const handleGoPeople = () => {
@@ -148,12 +157,48 @@ export function Sidebar({
 
           {showMenu && (
             <div className="absolute right-0 top-full mt-1 w-48 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900 z-50">
-              <button
-                onClick={toggleTheme}
-                className="flex w-full items-center px-4 py-3 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Change Theme
-              </button>
+              <div className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 dark:text-zinc-200 border-b border-zinc-100 dark:border-zinc-800">
+                <span>Theme</span>
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-500 ease-in-out focus:outline-none overflow-hidden ${
+                    isDark ? "bg-slate-800" : "bg-sky-300"
+                  }`}
+                  style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)' }}
+                >
+                  <span className="sr-only">Toggle theme</span>
+                  
+                  {/* Daytime Clouds */}
+                  <div className={`absolute inset-0 transition-opacity duration-500 ${isDark ? "opacity-0" : "opacity-100"}`}>
+                    <div className="absolute -bottom-1 -right-1 h-4 w-6 rounded-full bg-white/90"></div>
+                    <div className="absolute -bottom-2 right-2 h-5 w-5 rounded-full bg-white/80"></div>
+                    <div className="absolute bottom-0 right-5 h-3 w-4 rounded-full bg-white/70"></div>
+                  </div>
+
+                  {/* Nighttime Stars */}
+                  <div className={`absolute inset-0 transition-opacity duration-500 ${isDark ? "opacity-100" : "opacity-0"}`}>
+                    <div className="absolute left-2 top-1.5 h-0.5 w-0.5 rounded-full bg-white shadow-[0_0_2px_rgba(255,255,255,0.8)]"></div>
+                    <div className="absolute left-4 top-4 h-0.5 w-0.5 rounded-full bg-white shadow-[0_0_2px_rgba(255,255,255,0.8)]"></div>
+                    <div className="absolute left-5 top-1 h-px w-px rounded-full bg-white/50"></div>
+                    <div className="absolute left-2 bottom-1.5 h-px w-px rounded-full bg-white/50"></div>
+                  </div>
+
+                  {/* Sun / Moon */}
+                  <span
+                    className={`pointer-events-none relative inline-block h-5 w-5 transform rounded-full shadow-sm ring-0 transition-all duration-500 ease-in-out ${
+                      isDark ? "translate-x-8 bg-slate-300" : "translate-x-1 bg-yellow-300"
+                    }`}
+                  >
+                    {/* Moon Craters */}
+                    <div className={`absolute inset-0 transition-opacity duration-500 ${isDark ? "opacity-100" : "opacity-0"}`}>
+                      <div className="absolute left-1 top-1 h-1 w-1 rounded-full bg-slate-400/50"></div>
+                      <div className="absolute bottom-1 right-1.5 h-1.5 w-1.5 rounded-full bg-slate-400/50"></div>
+                      <div className="absolute left-2 bottom-1 h-0.5 w-0.5 rounded-full bg-slate-400/50"></div>
+                    </div>
+                  </span>
+                </button>
+              </div>
               <button
                 onClick={() => {
                   setShowMenu(false);

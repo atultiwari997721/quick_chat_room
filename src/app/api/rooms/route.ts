@@ -19,16 +19,35 @@ export async function POST(request: NextRequest) {
     code = generateCode();
   }
 
-  const room = await prisma.room.create({
-    data: {
-      code,
-      name: roomName?.trim() || `${user.name}'s Room`,
-      adminId: user.id,
-      kind: isTemporary ? "temp_group" : "group",
-      members: { create: { userId: user.id } },
-    },
-    include: { members: { include: { user: true } } },
-  });
+  let room;
+  try {
+    room = await prisma.room.create({
+      data: {
+        code,
+        name: roomName?.trim() || `${user.name}'s Room`,
+        adminId: user.id,
+        kind: isTemporary ? "temp_group" : "group",
+        members: { create: { userId: user.id } },
+      },
+      include: { members: { include: { user: true } } },
+    });
+  } catch (err: any) {
+    if (err?.code === "P2021" || err?.message?.includes("column") || err?.message?.includes("kind")) {
+      const fallbackName = (isTemporary ? "[TEMP] " : "") + (roomName?.trim() || `${user.name}'s Room`);
+      room = await prisma.room.create({
+        data: {
+          code,
+          name: fallbackName,
+          adminId: user.id,
+          members: { create: { userId: user.id } },
+        },
+        include: { members: { include: { user: true } } },
+      });
+      (room as any).kind = isTemporary ? "temp_group" : "group";
+    } else {
+      throw err;
+    }
+  }
 
   const members = room.members.map((m) => toPublicUser(m.user));
   return NextResponse.json(
@@ -64,7 +83,7 @@ export async function GET(request: NextRequest) {
     .map((m) => {
       const room = m.room;
       let name = room.name;
-      if (room.kind === "dm" || room.kind === "temp_dm") {
+      if (room.kind === "dm" || room.kind === "temp_dm" || name.startsWith("[DM] ")) {
         const other = room.members.find(member => member.userId !== user.id);
         if (other) {
           name = other.user.name;
@@ -76,7 +95,7 @@ export async function GET(request: NextRequest) {
         id: room.id,
         code: room.code,
         name,
-        kind: room.kind,
+        kind: room.kind || (name.startsWith("[TEMP] ") ? "temp_group" : name.startsWith("[DM] ") ? "temp_dm" : "group"),
         adminId: room.adminId,
         createdAt: room.createdAt.toISOString(),
         memberCount: room.members.length,
