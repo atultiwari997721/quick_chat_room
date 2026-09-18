@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { toPublicUser } from "@/lib/serialize";
 
@@ -11,12 +11,18 @@ export async function POST(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
+  await ensureDbSchema();
+
   const body = await request.json();
   const { roomName, isTemporary = false } = body as { roomName?: string; isTemporary?: boolean };
 
   let code = generateCode();
-  while (await prisma.room.findUnique({ where: { code } })) {
-    code = generateCode();
+  try {
+    while (await prisma.room.findUnique({ where: { code } })) {
+      code = generateCode();
+    }
+  } catch {
+    // ignore
   }
 
   let room;
@@ -45,7 +51,8 @@ export async function POST(request: NextRequest) {
       });
       (room as any).kind = isTemporary ? "temp_group" : "group";
     } else {
-      throw err;
+      console.error("Error creating room:", err);
+      return NextResponse.json({ error: "Failed to create room" }, { status: 500 });
     }
   }
 
@@ -64,56 +71,61 @@ export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
-  // Lazy cleanup removed to prevent deletion desync issues where newly created rooms get deleted.
+  await ensureDbSchema();
 
-  const memberships = await prisma.roomMember.findMany({
-    where: { userId: user.id },
-    include: {
-      room: {
-        include: {
-          members: { include: { user: true } },
-          messages: { orderBy: { createdAt: "desc" }, take: 1, include: { user: true } },
+  try {
+    const memberships = await prisma.roomMember.findMany({
+      where: { userId: user.id },
+      include: {
+        room: {
+          include: {
+            members: { include: { user: true } },
+            messages: { orderBy: { createdAt: "desc" }, take: 1, include: { user: true } },
+          },
         },
       },
-    },
-    orderBy: { joinedAt: "desc" },
-  });
-
-  const rooms = memberships
-    .map((m) => {
-      const room = m.room;
-      let name = room.name;
-      if (room.kind === "dm" || room.kind === "temp_dm" || name.startsWith("[DM] ")) {
-        const other = room.members.find(member => member.userId !== user.id);
-        if (other) {
-          name = other.user.name;
-        }
-      }
-
-      const last = room.messages[0];
-      return {
-        id: room.id,
-        code: room.code,
-        name,
-        kind: room.kind || (name.startsWith("[TEMP] ") ? "temp_group" : name.startsWith("[DM] ") ? "temp_dm" : "group"),
-        adminId: room.adminId,
-        createdAt: room.createdAt.toISOString(),
-        memberCount: room.members.length,
-        lastMessage: last
-          ? {
-              id: last.id,
-              content: last.content,
-              createdAt: last.createdAt.toISOString(),
-              author: last.user.name,
-            }
-          : null,
-      };
-    })
-    .sort((a, b) => {
-      const ta = a.lastMessage?.createdAt ?? a.createdAt;
-      const tb = b.lastMessage?.createdAt ?? b.createdAt;
-      return tb.localeCompare(ta);
+      orderBy: { joinedAt: "desc" },
     });
 
-  return NextResponse.json({ rooms });
+    const rooms = memberships
+      .map((m) => {
+        const room = m.room;
+        let name = room.name;
+        if (room.kind === "dm" || room.kind === "temp_dm" || name.startsWith("[DM] ")) {
+          const other = room.members.find((member) => member.userId !== user.id);
+          if (other) {
+            name = other.user.name;
+          }
+        }
+
+        const last = room.messages[0];
+        return {
+          id: room.id,
+          code: room.code,
+          name,
+          kind: room.kind || (name.startsWith("[TEMP] ") ? "temp_group" : name.startsWith("[DM] ") ? "temp_dm" : "group"),
+          adminId: room.adminId,
+          createdAt: room.createdAt.toISOString(),
+          memberCount: room.members.length,
+          lastMessage: last
+            ? {
+                id: last.id,
+                content: last.content,
+                createdAt: last.createdAt.toISOString(),
+                author: last.user.name,
+              }
+            : null,
+        };
+      })
+      .sort((a, b) => {
+        const ta = a.lastMessage?.createdAt ?? a.createdAt;
+        const tb = b.lastMessage?.createdAt ?? b.createdAt;
+        return tb.localeCompare(ta);
+      });
+
+    return NextResponse.json({ rooms });
+  } catch (err) {
+    console.error("Error fetching rooms:", err);
+    return NextResponse.json({ rooms: [] });
+  }
 }

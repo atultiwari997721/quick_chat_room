@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { toPublicUser } from "@/lib/serialize";
 
@@ -17,37 +17,42 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Lazy cleanup removed
+  await ensureDbSchema();
 
-  const room = await prisma.room.findUnique({
-    where: { code: code.trim() },
-  });
-  if (!room) {
+  try {
+    const room = await prisma.room.findUnique({
+      where: { code: code.trim() },
+    });
+    if (!room) {
+      return NextResponse.json(
+        { error: "Room not found. Check the code and try again." },
+        { status: 404 }
+      );
+    }
+
+    await prisma.roomMember.upsert({
+      where: { roomId_userId: { roomId: room.id, userId: user.id } },
+      create: { roomId: room.id, userId: user.id },
+      update: {},
+    });
+
+    const updated = await prisma.room.findUnique({
+      where: { id: room.id },
+      include: {
+        members: { include: { user: true }, orderBy: { joinedAt: "asc" } },
+      },
+    });
+    if (!updated) {
+      return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    }
+
+    const members = updated.members.map((m) => toPublicUser(m.user));
     return NextResponse.json(
-      { error: "Room not found. Check the code and try again." },
-      { status: 404 }
+      { room: { ...updated, members }, user: toPublicUser(user) },
+      { status: 201 }
     );
+  } catch (err) {
+    console.error("Error joining room:", err);
+    return NextResponse.json({ error: "Failed to join room" }, { status: 500 });
   }
-
-  await prisma.roomMember.upsert({
-    where: { roomId_userId: { roomId: room.id, userId: user.id } },
-    create: { roomId: room.id, userId: user.id },
-    update: {},
-  });
-
-  const updated = await prisma.room.findUnique({
-    where: { id: room.id },
-    include: {
-      members: { include: { user: true }, orderBy: { joinedAt: "asc" } },
-    },
-  });
-  if (!updated) {
-    return NextResponse.json({ error: "Room not found" }, { status: 404 });
-  }
-
-  const members = updated.members.map((m) => toPublicUser(m.user));
-  return NextResponse.json(
-    { room: { ...updated, members }, user: toPublicUser(user) },
-    { status: 201 }
-  );
 }

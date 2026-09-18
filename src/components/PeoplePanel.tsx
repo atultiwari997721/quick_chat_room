@@ -174,41 +174,27 @@ export function PeoplePanel({ token, onBack, onOpenDm }: PeoplePanelProps) {
 
   const openDmFor = async (user: OtherUser) => {
     setBusyId(user.id);
-    const res = await fetch(`/api/users/search?id=${user.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    setBusyId(null);
-    // The DM room already exists after acceptance; fetch it via follows list lookup is complex,
-    // so we rely on the room being in the sidebar. For direct open, find the room code via rooms list.
-    if (res.ok) {
-      const data = await res.json();
-      const u = data.user as OtherUser;
-      const roomsRes = await fetch("/api/rooms", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
+    setError(null);
+    try {
+      const res = await fetch("/api/dm", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ targetId: user.id }),
       });
-      if (roomsRes.ok) {
-        const { rooms } = (await roomsRes.json()) as { rooms: RoomSummary[] };
-        const dm = rooms.find(
-          (r) =>
-            r.kind === "dm" &&
-            r.name.toLowerCase().includes(u.name.toLowerCase())
-        );
-        if (dm) {
-          const roomRes = await fetch(`/api/rooms/${dm.code}`, {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          });
-          if (roomRes.ok) {
-            const { room } = await roomRes.json();
-            onOpenDm(room);
-            return;
-          }
-        }
+      if (res.ok) {
+        const { room } = await res.json();
+        onOpenDm(room);
+      } else {
+        const data = await res.json().catch(() => null);
+        setError(data?.error ?? "Could not open chat");
       }
-      setNotice("Private chat already open in your chats list.");
-      setTimeout(() => setNotice(null), 2500);
+    } catch {
+      setError("Could not open chat. Check connection.");
+    } finally {
+      setBusyId(null);
     }
   };
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { toPublicUser } from "@/lib/serialize";
 
@@ -11,41 +11,50 @@ export async function GET(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
 
-  const [incoming, outgoing, accepted] = await Promise.all([
-    prisma.follow.findMany({
-      where: { followeeId: user.id, status: "pending" },
-      include: { follower: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.follow.findMany({
-      where: { followerId: user.id, status: "pending" },
-      include: { followee: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.follow.findMany({
-      where: {
-        status: "accepted",
-        OR: [{ followerId: user.id }, { followeeId: user.id }],
-      },
-      include: { follower: true, followee: true },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
+  await ensureDbSchema();
 
-  return NextResponse.json({
-    incoming: incoming.map((f) => ({ ...f, follower: userJson(f.follower) })),
-    outgoing: outgoing.map((f) => ({ ...f, followee: userJson(f.followee) })),
-    following: accepted.map((f) => ({
-      id: f.id,
-      user: userJson(f.followeeId === user.id ? f.follower : f.followee),
-      createdAt: f.createdAt.toISOString(),
-    })),
-  });
+  try {
+    const [incoming, outgoing, accepted] = await Promise.all([
+      prisma.follow.findMany({
+        where: { followeeId: user.id, status: "pending" },
+        include: { follower: true },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.follow.findMany({
+        where: { followerId: user.id, status: "pending" },
+        include: { followee: true },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.follow.findMany({
+        where: {
+          status: "accepted",
+          OR: [{ followerId: user.id }, { followeeId: user.id }],
+        },
+        include: { follower: true, followee: true },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    return NextResponse.json({
+      incoming: incoming.map((f) => ({ ...f, follower: userJson(f.follower) })),
+      outgoing: outgoing.map((f) => ({ ...f, followee: userJson(f.followee) })),
+      following: accepted.map((f) => ({
+        id: f.id,
+        user: userJson(f.followeeId === user.id ? f.follower : f.followee),
+        createdAt: f.createdAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error("Error loading follows:", err);
+    return NextResponse.json({ incoming: [], outgoing: [], following: [] });
+  }
 }
 
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
+  await ensureDbSchema();
 
   const body = await request.json();
   const { targetId } = body as { targetId?: string };
@@ -74,6 +83,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
+  await ensureDbSchema();
 
   const body = await request.json();
   const { followId, accept } = body as { followId?: string; accept?: boolean };
@@ -188,6 +199,8 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+
+  await ensureDbSchema();
 
   const body = await request.json();
   const { targetId } = body as { targetId?: string };

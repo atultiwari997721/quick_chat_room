@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { generateToken } from "@/lib/password";
 
 export function getToken(request: NextRequest): string | null {
@@ -10,6 +10,7 @@ export function getToken(request: NextRequest): string | null {
 }
 
 export async function createSession(userId: string): Promise<string> {
+  await ensureDbSchema();
   const token = generateToken();
   await prisma.session.create({ data: { token, userId } });
   return token;
@@ -17,6 +18,7 @@ export async function createSession(userId: string): Promise<string> {
 
 export async function getSessionUser(token: string | null) {
   if (!token) return null;
+  await ensureDbSchema();
   const session = await prisma.session.findUnique({
     where: { token },
     include: { user: true },

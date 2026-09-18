@@ -7,6 +7,7 @@ import { MembersPanel } from "@/components/MembersPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
 import MediaViewerModal from "@/components/MediaViewerModal";
 import { useChatSecurity, Watermark } from "@/components/useChatSecurity";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { Account, ChatMessage, Room, RoomUser } from "@/lib/types";
 
 type ChatRoomProps = {
@@ -452,6 +453,7 @@ export function ChatRoom({
 
         {/* Desktop actions */}
         <div className="hidden md:flex md:items-center md:gap-1.5">
+          <ThemeToggle />
           {!isDm && (
             <button
               onClick={copyLink}
@@ -500,6 +502,7 @@ export function ChatRoom({
 
         {/* Mobile actions */}
         <div className="flex items-center gap-1 md:hidden">
+          <ThemeToggle />
           {!isDm && (
             <button
               onClick={() => setShowMembers((v) => !v)}
